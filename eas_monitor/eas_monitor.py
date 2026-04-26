@@ -293,10 +293,9 @@ def main():
                 "Connecting radio node %s -> USRP listener %s (ilink 8)",
                 local_node, private_node
             )
-            # ilink_connect_local_monitor(listener, source)
-            # = rpt cmd listener ilink 8 source
-            # We want: rpt cmd radio_node(42266) ilink 8 private_node(1998)
-            # so radio_node is the "listener" that connects to private_node
+            # rpt cmd {local_node} ilink 8 {private_node}
+            # Connects the weather radio node to the USRP listener
+            # so audio flows through to the EAS monitor
             ami.ilink_connect_local_monitor(local_node, private_node)
 
     consecutive_fast = 0

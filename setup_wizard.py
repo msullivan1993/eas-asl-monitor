@@ -1259,9 +1259,19 @@ class EASWizard:
         ]
         choice = WTail.menu(
             "Select your audio source:\n\n"
-            "This determines how the EAS monitor receives NOAA WX audio.",
+            "USB Shared:  Asterisk and EAS monitor share one USB dongle\n"
+            "             via ALSA dsnoop. Works if your driver supports\n"
+            "             shared capture (test first).\n\n"
+            "USB Direct:  Dedicated weather radio dongle -- Asterisk uses\n"
+            "             a different audio device entirely.\n\n"
+            "RTL-SDR:     Software defined radio dongle (~$25).\n\n"
+            "Stream:      Broadcastify or internet audio URL.\n\n"
+            "USRP Node:   Asterisk owns the USB device exclusively\n"
+            "             (HamVoIP/chan_simpleusb). Taps audio via a\n"
+            "             private AllStarLink node -- no hardware needed.",
             items,
-            title="Audio Source Selection"
+            title="Audio Source Selection",
+            height=22
         )
         if choice is None:
             return None
@@ -1507,7 +1517,8 @@ class EASWizard:
             "  exten={node},1,Rpt,{node}|X\n\n"
             "After applying, Asterisk will be reloaded.\n"
             "Proceed?".format(
-                node=private_node, rx=rx_port, tx=rx_port + 1),
+                node=private_node, rx=rx_port, tx=rx_port + 1,
+                pub=public_node),
             title="Confirm Asterisk Config",
             yes_btn="Apply",
             no_btn="Cancel",
