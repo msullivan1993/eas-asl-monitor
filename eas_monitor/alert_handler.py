@@ -9,34 +9,81 @@ import re
 import time
 
 WARNING_EVENTS = {
+    # Convective
     'TOR': 'Tornado Warning',
     'SVR': 'Severe Thunderstorm Warning',
+    'SQW': 'Snow Squall Warning',
+    'SMW': 'Special Marine Warning',
+    # Flood
     'FFW': 'Flash Flood Warning',
+    'FFS': 'Flash Flood Statement',
+    'FLW': 'Flood Warning',
+    'FLS': 'Flood Statement',
+    # Wind/Tropical
     'EWW': 'Extreme Wind Warning',
     'HUW': 'Hurricane Warning',
     'HLS': 'Hurricane Local Statement',
-    'SMW': 'Special Marine Warning',
-    'SQW': 'Snow Squall Warning',
-    'DSW': 'Dust Storm Warning',
+    'TRW': 'Tropical Storm Warning',
+    'TYW': 'Typhoon Warning',
+    # Winter
     'BZW': 'Blizzard Warning',
     'WSW': 'Winter Storm Warning',
     'ICW': 'Ice Storm Warning',
-    'FRW': 'Fire Warning',
+    'WCY': 'Wind Chill Warning',
+    'HZW': 'Hard Freeze Warning',
+    'FZW': 'Freeze Warning',
+    'LSW': 'Land Slide Warning',
+    'AQW': 'Air Quality Alert',
+    'FWW': 'Red Flag Warning',
+    # Dust/Volcano
+    'DSW': 'Dust Storm Warning',
     'VOW': 'Volcano Warning',
-    'TRW': 'Tropical Storm Warning',
+    # Tsunami/Earthquake
+    'TSW': 'Tsunami Warning',
+    'EQW': 'Earthquake Warning',
+    'AVW': 'Avalanche Warning',
+    # Coastal
+    'CFW': 'Coastal Flood Warning',
+    # Civil/Law
     'LEW': 'Law Enforcement Warning',
     'CEM': 'Civil Emergency Message',
+    'LAE': 'Local Area Emergency',
+    'CAE': 'Child Abduction Emergency',
+    'CDW': 'Civil Danger Warning',
+    'SPW': 'Shelter In Place Warning',
+    'NUW': 'Nuclear Power Plant Warning',
+    'TOE': '911 Telephone Outage Emergency',
+    'ADR': 'Administrative Message',
 }
 
 WATCH_EVENTS = {
     'TOA': 'Tornado Watch',
     'SVA': 'Severe Thunderstorm Watch',
     'FFA': 'Flash Flood Watch',
+    'FLA': 'Flood Watch',
     'HUA': 'Hurricane Watch',
     'TRA': 'Tropical Storm Watch',
+    'TYA': 'Typhoon Watch',
     'BZA': 'Blizzard Watch',
     'WSA': 'Winter Storm Watch',
-    'FLA': 'Flash Freeze Watch',
+    'HZA': 'Hard Freeze Watch',
+    'FZA': 'Freeze Watch',
+    'WCA': 'Wind Chill Watch',
+    'AVA': 'Avalanche Watch',
+    'TSA': 'Tsunami Watch',
+    'CFA': 'Coastal Flood Watch',
+    'HWA': 'High Wind Watch',
+}
+
+ADVISORY_EVENTS = {
+    'WFA': 'Wind Advisory',
+    'SVS': 'Severe Weather Statement',
+    'TCV': 'Tropical Cyclone Statement',
+    'HLS': 'Hurricane Local Statement',
+    'TXF': 'Transmitter Carrier Off',
+    'TXS': 'Transmitter Backup On',
+    'TXB': 'Transmitter Backup On (alt)',
+    'TXW': 'Transmitter Warning',
 }
 
 NATIONAL_EVENTS = {
@@ -47,22 +94,17 @@ NATIONAL_EVENTS = {
 }
 
 TEST_EVENTS = {
-    'RMT': 'Required Monthly Test',
     'RWT': 'Required Weekly Test',
+    'RMT': 'Required Monthly Test',
+    'EVI': 'Evacuation Immediate',
 }
 
 ALL_EVENTS = {}
 ALL_EVENTS.update(WARNING_EVENTS)
 ALL_EVENTS.update(WATCH_EVENTS)
+ALL_EVENTS.update(ADVISORY_EVENTS)
 ALL_EVENTS.update(NATIONAL_EVENTS)
 ALL_EVENTS.update(TEST_EVENTS)
-
-SAME_RE = re.compile(
-    r'ZCZC-(?P<org>\w+)-(?P<event>\w+)-(?P<fips>[\d\-]+)'
-    r'\+(?P<purge>\d{4})-(?P<issued>\d{7})-(?P<callsign>[^\-\s]+)-?'
-)
-
-DEDUP_WINDOW = 120
 
 
 def purge_to_seconds(hhmm):

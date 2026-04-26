@@ -61,200 +61,92 @@ NOAA_FREQUENCIES = {
 WARNING_EVENTS = {
     'TOR': 'Tornado Warning',
     'SVR': 'Severe Thunderstorm Warning',
+    'SQW': 'Snow Squall Warning',
+    'SMW': 'Special Marine Warning',
     'FFW': 'Flash Flood Warning',
+    'FFS': 'Flash Flood Statement',
+    'FLW': 'Flood Warning',
+    'FLS': 'Flood Statement',
     'EWW': 'Extreme Wind Warning',
     'HUW': 'Hurricane Warning',
-    'SMW': 'Special Marine Warning',
-    'SQW': 'Snow Squall Warning',
-    'DSW': 'Dust Storm Warning',
+    'HLS': 'Hurricane Local Statement',
+    'TRW': 'Tropical Storm Warning',
+    'TYW': 'Typhoon Warning',
     'BZW': 'Blizzard Warning',
     'WSW': 'Winter Storm Warning',
+    'ICW': 'Ice Storm Warning',
+    'WCY': 'Wind Chill Warning',
+    'HZW': 'Hard Freeze Warning',
+    'FZW': 'Freeze Warning',
+    'LSW': 'Land Slide Warning',
+    'AQW': 'Air Quality Alert',
+    'FWW': 'Red Flag Warning',
+    'DSW': 'Dust Storm Warning',
+    'VOW': 'Volcano Warning',
+    'TSW': 'Tsunami Warning',
+    'EQW': 'Earthquake Warning',
+    'AVW': 'Avalanche Warning',
+    'CFW': 'Coastal Flood Warning',
+    'LEW': 'Law Enforcement Warning',
     'CEM': 'Civil Emergency Message',
+    'LAE': 'Local Area Emergency',
+    'CAE': 'Child Abduction Emergency',
+    'CDW': 'Civil Danger Warning',
+    'SPW': 'Shelter In Place Warning',
+    'NUW': 'Nuclear Power Plant Warning',
+    'TOE': '911 Telephone Outage Emergency',
+    'ADR': 'Administrative Message',
 }
 
 WATCH_EVENTS = {
     'TOA': 'Tornado Watch',
     'SVA': 'Severe Thunderstorm Watch',
     'FFA': 'Flash Flood Watch',
+    'FLA': 'Flood Watch',
     'HUA': 'Hurricane Watch',
-    'WSA': 'Winter Storm Watch',
+    'TRA': 'Tropical Storm Watch',
+    'TYA': 'Typhoon Watch',
     'BZA': 'Blizzard Watch',
+    'WSA': 'Winter Storm Watch',
+    'HZA': 'Hard Freeze Watch',
+    'FZA': 'Freeze Watch',
+    'WCA': 'Wind Chill Watch',
+    'AVA': 'Avalanche Watch',
+    'TSA': 'Tsunami Watch',
+    'CFA': 'Coastal Flood Watch',
+    'HWA': 'High Wind Watch',
 }
 
-TEST_EVENTS = {
-    'RMT': 'Required Monthly Test',
-    'RWT': 'Required Weekly Test',
+ADVISORY_EVENTS = {
+    'WFA': 'Wind Advisory',
+    'SVS': 'Severe Weather Statement',
+    'TCV': 'Tropical Cyclone Statement',
+    'TXF': 'Transmitter Carrier Off',
+    'TXS': 'Transmitter Backup On',
+    'TXB': 'Transmitter Backup On (alt)',
+    'TXW': 'Transmitter Warning',
+}
+
+NATIONAL_EVENTS = {
+    'EAN': 'Emergency Action Notification (Presidential)',
+    'EAT': 'Emergency Action Termination',
+    'NIC': 'National Information Center',
     'NPT': 'National Periodic Test',
 }
 
-SCREEN_WIDTH  = 76
-SCREEN_HEIGHT = 20
+TEST_EVENTS = {
+    'RWT': 'Required Weekly Test',
+    'RMT': 'Required Monthly Test',
+    'EVI': 'Evacuation Immediate',
+}
 
+ALL_EVENTS = {}
+ALL_EVENTS.update(WARNING_EVENTS)
+ALL_EVENTS.update(WATCH_EVENTS)
+ALL_EVENTS.update(ADVISORY_EVENTS)
+ALL_EVENTS.update(NATIONAL_EVENTS)
+ALL_EVENTS.update(TEST_EVENTS)
 
-# -- whiptail helpers --------------------------------------------------------
-
-class WTail:
-    """Thin wrapper around whiptail for cleaner call syntax."""
-
-    BACKTITLE = "EAS/SAME AllStarLink Monitor -- Setup Wizard"
-
-    @staticmethod
-    def _run(args):
-        """Run whiptail, return (exit_code, output).
-        whiptail draws its UI on /dev/tty and returns the user's choice on
-        stderr.  We must open /dev/tty explicitly so it works whether we are
-        called from a plain terminal, via sudo, or from inside install.sh.
-        """
-        full = ['whiptail', '--backtitle', WTail.BACKTITLE] + args
-        try:
-            tty_in  = open('/dev/tty', 'r')
-            tty_out = open('/dev/tty', 'w')
-            result = subprocess.run(
-                full,
-                stdin=tty_in,
-                stdout=tty_out,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
-            )
-            tty_in.close()
-            tty_out.close()
-            return result.returncode, result.stderr.strip()
-        except FileNotFoundError:
-            print("ERROR: whiptail not found. Install libnewt (Arch) or whiptail (Debian).")
-            sys.exit(1)
-
-    @staticmethod
-    def msgbox(text, title = '', height = 10):
-        args = ['--title', title, '--msgbox', text,
-                str(height), str(SCREEN_WIDTH)]
-        WTail._run(args)
-
-    @staticmethod
-    def infobox(text, title = ''):
-        args = ['--title', title, '--infobox', text, '5', str(SCREEN_WIDTH)]
-        WTail._run(args)
-
-    @staticmethod
-    def yesno(text, title = '',
-              default_yes = True,
-              yes_btn = 'Yes', no_btn = 'No'):
-        args = [
-            '--title', title,
-            '--yes-button', yes_btn,
-            '--no-button', no_btn,
-        ]
-        if not default_yes:
-            args.append('--defaultno')
-        args += ['--yesno', text, '8', str(SCREEN_WIDTH)]
-        rc, _ = WTail._run(args)
-        return rc == 0
-
-    @staticmethod
-    def inputbox(text, default = '',
-                 title = '', height = 8):
-        args = ['--title', title, '--inputbox', text,
-                str(height), str(SCREEN_WIDTH), default]
-        rc, out = WTail._run(args)
-        return out if rc == 0 else None
-
-    @staticmethod
-    def passwordbox(text, title = ''):
-        args = ['--title', title, '--passwordbox', text,
-                '8', str(SCREEN_WIDTH), '']
-        rc, out = WTail._run(args)
-        return out if rc == 0 else None
-
-    @staticmethod
-    def menu(text, items,
-             title = '', height = None):
-        """items = list of (tag, description) tuples."""
-        n = len(items)
-        h = height or min(SCREEN_HEIGHT, n + 8)
-        args = ['--title', title, '--menu', text,
-                str(h), str(SCREEN_WIDTH), str(n)]
-        for tag, desc in items:
-            args += [str(tag), str(desc)]
-        rc, out = WTail._run(args)
-        return out if rc == 0 else None
-
-    @staticmethod
-    def radiolist(text, items,
-                  title = ''):
-        """items = list of (tag, description, selected_bool) tuples."""
-        n = len(items)
-        h = min(SCREEN_HEIGHT, n + 8)
-        args = ['--title', title, '--radiolist', text,
-                str(h), str(SCREEN_WIDTH), str(n)]
-        for tag, desc, selected in items:
-            args += [str(tag), str(desc), 'ON' if selected else 'OFF']
-        rc, out = WTail._run(args)
-        return out if rc == 0 else None
-
-    @staticmethod
-    def checklist(text, items,
-                  title = ''):
-        """items = list of (tag, description, checked_bool) tuples."""
-        n = len(items)
-        h = min(SCREEN_HEIGHT, n + 8)
-        args = [
-            '--title', title,
-            '--separate-output',
-            '--checklist', text,
-            str(h), str(SCREEN_WIDTH), str(n)
-        ]
-        for tag, desc, checked in items:
-            args += [str(tag), str(desc), 'ON' if checked else 'OFF']
-        rc, out = WTail._run(args)
-        if rc != 0:
-            return None
-        return [line for line in out.splitlines() if line]
-
-    @staticmethod
-    def textbox(text, title = ''):
-        """Display scrollable text."""
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
-                                         delete=False) as f:
-            f.write(text)
-            fname = f.name
-        args = ['--title', title, '--scrolltext',
-                '--textbox', fname, str(SCREEN_HEIGHT), str(SCREEN_WIDTH)]
-        WTail._run(args)
-        os.unlink(fname)
-
-    @staticmethod
-    def gauge(text, steps):
-        """
-        Show a progress gauge while executing steps.
-        steps = list of (description, callable) tuples.
-        """
-        total = len(steps)
-        proc  = subprocess.Popen(
-            ['whiptail', '--backtitle', WTail.BACKTITLE,
-             '--gauge', text, '8', str(SCREEN_WIDTH), '0'],
-            stdin=subprocess.PIPE, universal_newlines=True
-        )
-        for i, (desc, fn) in enumerate(steps):
-            pct = int(i / total * 100)
-            try:
-                proc.stdin.write("XXX\n{}\n{}\nXXX\n".format(pct, desc))
-                proc.stdin.flush()
-            except Exception:
-                pass
-            try:
-                fn()
-            except Exception as e:
-                pass  # Errors are logged by the callables themselves
-
-        try:
-            proc.stdin.write("XXX\n100\nDone.\nXXX\n")
-            proc.stdin.flush()
-        except Exception:
-            pass
-        proc.communicate()
-
-
-# -- System detection helpers ------------------------------------------------
 
 def detect_distro():
     try:
@@ -2268,16 +2160,30 @@ Files to be modified:
         ):
             return True
 
-        # Regenerate test sample with the actual selected FIPS codes
+        # Always regenerate test sample using selected FIPS + RWT event code
         fips_list = list(self.cfg.get('selected_fips', {}).keys())
         if fips_list:
             try:
-                WTail.infobox("Generating SAME test sample with your FIPS codes...")
+                WTail.infobox(
+                    "Generating SAME test sample (RWT) with your FIPS codes...")
                 header = generate_same_test_wav(fips_list, test_sample)
-                self.log_msg = "Test header: " + header
-            except Exception:
-                pass  # Fall back to bundled sample if generation fails
-
+                WTail.msgbox(
+                    "Test sample generated.\n\n"
+                    "Header: {}\n\n"
+                    "Event type is always RWT (Required Weekly Test) --\n"
+                    "real alert codes are never used in test samples."
+                    .format(header),
+                    title="Test Sample Ready",
+                    height=13
+                )
+            except Exception as e:
+                WTail.msgbox(
+                    "Could not generate custom test sample: {}\n\n"
+                    "Falling back to bundled sample.".format(e),
+                    title="Generator Warning",
+                    height=10
+                )
+        
         WTail.infobox("Running decode test...")
         try:
             # Check prerequisites individually for clear diagnostics

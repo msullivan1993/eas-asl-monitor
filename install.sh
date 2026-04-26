@@ -174,6 +174,8 @@ info "Directories created"
 # Copy source files
 cp -r "${REPO_DIR}/eas_monitor/"* "${INSTALL_DIR}/"
 cp "${REPO_DIR}/setup_wizard.py" "${INSTALL_DIR}/"
+cp -r "${REPO_DIR}/scripts" "${INSTALL_DIR}/"
+chmod +x "${INSTALL_DIR}/scripts/"*.py 2>/dev/null || true
 info "Source files installed to ${INSTALL_DIR}"
 
 # Symlink main script to PATH
