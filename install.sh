@@ -229,9 +229,18 @@ section "Step 5: Verify Test Sample"
 TEST_SAMPLE="${INSTALL_DIR}/test/same_test.wav"
 
 if [[ -s "$TEST_SAMPLE" ]]; then
-    info "Test sample present ($(du -sh "$TEST_SAMPLE" | cut -f1))"
+    info "Test sample present ($(du -sh \"$TEST_SAMPLE\" | cut -f1))"
 else
-    warn "Test sample missing -- decode test will be skipped"
+    echo "  Generating synthetic SAME test sample..."
+    mkdir -p "${INSTALL_DIR}/test"
+    INSTALL_DIR="${INSTALL_DIR}" TEST_SAMPLE="${TEST_SAMPLE}" \
+        python3 /etc/eas_monitor/scripts/generate_test_sample.py \
+        --output "${TEST_SAMPLE}" 2>/dev/null || true
+    if [[ -s "$TEST_SAMPLE" ]]; then
+        info "Test sample generated ($(du -sh \"$TEST_SAMPLE\" | cut -f1))"
+    else
+        warn "Could not generate test sample -- wizard will generate one during setup"
+    fi
 fi
 
 section "Step 6: Install systemd Service"

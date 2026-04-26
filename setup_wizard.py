@@ -2818,50 +2818,48 @@ Files to be modified:
     def screen_test(self):
         test_sample = Path(INSTALL_DIR) / 'test' / 'same_test.wav'
 
-        if not test_sample.exists():
-            if WTail.yesno(
-                "No test sample found.\n\n"
-                "Skip the decode test and proceed to completion?",
-                title="Test Sample Missing",
-                yes_btn="Skip",
-                no_btn="Back"
-            ):
-                return True
-            return False
-
         if not WTail.yesno(
-            "Run a SAME decode test using the bundled test sample?\n\n"
-            "This verifies that multimon-ng can decode SAME headers\n"
-            "from your audio pipeline.",
+            "Run a SAME decode test?\n\n"
+            "This generates a synthetic SAME/RWT audio sample using\n"
+            "your configured FIPS codes, then verifies that multimon-ng\n"
+            "can decode it correctly.\n\n"
+            "Recommended -- confirms your pipeline is working.",
             title="Decode Test",
             yes_btn="Run Test",
-            no_btn="Skip"
+            no_btn="Skip",
+            default_yes=True
         ):
             return True
 
-        # Always regenerate test sample using selected FIPS + RWT event code
+        # Always generate fresh sample using selected FIPS + RWT
         fips_list = list(self.cfg.get('selected_fips', {}).keys())
-        if fips_list:
-            try:
-                WTail.infobox(
-                    "Generating SAME test sample (RWT) with your FIPS codes...")
-                header = generate_same_test_wav(fips_list, test_sample)
-                WTail.msgbox(
-                    "Test sample generated.\n\n"
-                    "Header: {}\n\n"
-                    "Event type is always RWT (Required Weekly Test) --\n"
-                    "real alert codes are never used in test samples."
-                    .format(header),
-                    title="Test Sample Ready",
-                    height=13
-                )
-            except Exception as e:
-                WTail.msgbox(
-                    "Could not generate custom test sample: {}\n\n"
-                    "Falling back to bundled sample.".format(e),
-                    title="Generator Warning",
-                    height=10
-                )
+        if not fips_list:
+            fips_list = ['000000']  # generic fallback if no FIPS configured
+
+        WTail.infobox("Generating SAME test sample (RWT)...")
+        try:
+            test_sample.parent.mkdir(parents=True, exist_ok=True)
+            header = generate_same_test_wav(fips_list, str(test_sample))
+            WTail.msgbox(
+                "Test sample generated.\n\n"
+                "Header:\n  {}\n\n"
+                "FIPS codes: {}\n"
+                "Event type: RWT (Required Weekly Test)".format(
+                    header, ', '.join(fips_list[:4]) +
+                    (' +{} more'.format(len(fips_list)-4)
+                     if len(fips_list) > 4 else '')),
+                title="Test Sample Ready",
+                height=13
+            )
+        except Exception as e:
+            WTail.msgbox(
+                "Could not generate test sample:\n{}\n\n"
+                "The decode test will be skipped.".format(e),
+                title="Generator Failed",
+                height=10
+            )
+            return True
+
         
         WTail.infobox("Running decode test...")
         try:
