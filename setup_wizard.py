@@ -1081,10 +1081,10 @@ class EASWizard:
 
         screens = [
             self.screen_welcome,
-            self.screen_node_config,
             self.screen_source_select,
             self.screen_source_config,
             self.screen_device_id,        # udev/EEPROM device identification
+            self.screen_node_config,
             self.screen_usrp_nodes,
             self.screen_fips_setup,
             self.screen_node_mapping,
@@ -1132,9 +1132,15 @@ class EASWizard:
     def screen_node_config(self):
         # Local node number
         node = WTail.inputbox(
-            "Enter your AllStarLink node number:",
+            "Enter the node number of the node connected to\n"
+            "your weather radio receiver.\n\n"
+            "This is the node that SENDS alerts -- it will\n"
+            "connect outward to destination nodes when an\n"
+            "EAS/SAME alert is received.\n\n"
+            "Example: if your weather radio is on node 12345,\n"
+            "enter 12345.",
             default=self.cfg.get('local_node', ''),
-            title="Node Configuration"
+            title="Your Node Number"
         )
         if node is None:
             return None
@@ -1841,10 +1847,8 @@ class EASWizard:
             no_btn="Done",
             default_yes=False
         ):
-            # Merge additional results into existing selection
-            extra = self._fips_from_zip(existing=self.cfg['selected_fips'])
-            if extra:
-                self.cfg['selected_fips'] = extra
+            # Call again with existing selection — it updates cfg directly
+            self._fips_from_zip(existing=self.cfg['selected_fips'])
         return True
 
     def _fips_manual(self):
@@ -1895,15 +1899,27 @@ class EASWizard:
         node_mapping = self.cfg.get('fips_map', {})
 
         WTail.msgbox(
-            "You have {} county/counties selected.\n\nFor each county, enter the AllStarLink node number to connect\nwhen an alert is received for that county.\n\nMultiple counties can map to the same node number.".format(len(fips_map)),
-            title="Node Mapping",
-            height=12
+            "You have {} county/counties selected.\n\n"
+            "For each county, enter the DESTINATION node --\n"
+            "the node you want YOUR node to CONNECT TO when\n"
+            "an alert fires for that county.\n\n"
+            "This is typically a regional hub or net node.\n"
+            "Multiple counties can share the same node.\n"
+            "Enter 0 to skip a county.".format(len(fips_map)),
+            title="Node Mapping -- Destination Nodes",
+            height=16
         )
 
         for fips, name in sorted(fips_map.items()):
             existing = node_mapping.get(fips, '')
             node = WTail.inputbox(
-                "ASL node to connect for:\n\n  {}\n  FIPS: {}\n\nEnter 0 to skip this county.".format(name, fips),
+                ("DESTINATION node for:\n\n"
+                "  County: {}\n"
+                "  FIPS:   {}\n\n"
+                "Enter the node number that your weather radio\n"
+                "node should CONNECT TO when this county is\n"
+                "included in an alert.\n\n"
+                "Enter 0 to skip this county.").format(name, fips),
                 default=existing,
                 title="Node Mapping"
             )
