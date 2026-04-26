@@ -580,13 +580,12 @@ def zip_to_fips_local(zipcode):
         return []
     try:
         results = []
+        delim = _detect_fips_delimiter()
         with open(FIPS_DATA_FILE, 'r') as f:
-            reader = csv.reader(f, delimiter='|')
+            reader = csv.reader(f, delimiter=delim)
             for row in reader:
                 if not row:
                     continue
-                # Try both column 0 and column 1 in case the file has
-                # a different column order than expected
                 zcta = row[0].strip()
                 if zcta == zipcode:
                     geoid = row[1].strip() if len(row) > 1 else ''
@@ -605,9 +604,27 @@ def zip_to_fips_local(zipcode):
         return []
 
 
+def _detect_fips_delimiter():
+    """Detect whether the FIPS file uses tab or pipe as delimiter."""
+    if not Path(FIPS_DATA_FILE).exists():
+        return '|'
+    try:
+        with open(FIPS_DATA_FILE, 'r') as f:
+            first_line = f.readline()
+        if '	' in first_line:
+            return '	'
+        if '|' in first_line:
+            return '|'
+        # Show raw bytes for diagnosis
+        return '	'  # default to tab
+    except Exception:
+        return '|'
+
+
 def zip_to_fips_local_debug(zipcode):
     """Return debug info about the local FIPS file for diagnostics."""
-    info = {'exists': False, 'size': 0, 'header': '', 'sample': '', 'found': False}
+    info = {'exists': False, 'size': 0, 'header': '', 'sample': '',
+            'found': False, 'delimiter': '?'}
     if not Path(FIPS_DATA_FILE).exists():
         return info
     import os
@@ -615,19 +632,29 @@ def zip_to_fips_local_debug(zipcode):
     info['size']   = os.path.getsize(FIPS_DATA_FILE)
     try:
         with open(FIPS_DATA_FILE, 'r') as f:
-            reader = csv.reader(f, delimiter='|')
-            rows = []
+            first_line = f.readline()
+        # Show raw first 80 chars and detected delimiter
+        info['raw_first'] = repr(first_line[:80])
+        if '	' in first_line:
+            info['delimiter'] = 'TAB'
+            delim = '	'
+        elif '|' in first_line:
+            info['delimiter'] = 'PIPE'
+            delim = '|'
+        else:
+            info['delimiter'] = 'UNKNOWN'
+            info['raw_first'] = repr(first_line[:80])
+            return info
+
+        with open(FIPS_DATA_FILE, 'r') as f:
+            reader = csv.reader(f, delimiter=delim)
             for i, row in enumerate(reader):
                 if i == 0:
-                    info['header'] = '|'.join(row[:4])
-                if i < 3:
-                    rows.append('|'.join(row[:4]))
+                    info['header'] = delim.join(row[:3])
                 if row and row[0].strip() == zipcode:
                     info['found'] = True
-                    info['sample'] = '|'.join(row[:4])
+                    info['sample'] = delim.join(row[:3])
                     break
-            if not info['sample'] and rows:
-                info['sample'] = rows[-1]
     except Exception as e:
         info['error'] = str(e)
     return info
@@ -1651,16 +1678,18 @@ class EASWizard:
             dbg = zip_to_fips_local_debug(zips[0] if zips else '')
             debug_info = (
                 "FIPS file: {}  ({} bytes)\n"
+                "Delimiter: {}\n"
                 "ZIP {} in file: {}\n"
-                "File header: {}\n"
-                "Sample row:  {}"
+                "Header:  {}\n"
+                "Raw 1st: {}"
             ).format(
                 "found" if dbg.get('exists') else "MISSING",
                 dbg.get('size', 0),
+                dbg.get('delimiter', '?'),
                 zips[0] if zips else '?',
                 "YES" if dbg.get('found') else "NO",
                 dbg.get('header', 'n/a')[:50],
-                dbg.get('sample', 'n/a')[:50]
+                dbg.get('raw_first', 'n/a')[:50]
             )
             WTail.msgbox(
                 "Could not find counties for the ZIP code(s) entered.\n\n"

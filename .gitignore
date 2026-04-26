@@ -26,8 +26,8 @@ recordings/
 index.json
 
 # Test audio (downloaded at install time)
-test/same_test.wav
-test/*.wav
+
+test/
 test/*.raw
 
 # Logs
@@ -46,3 +46,6 @@ Thumbs.db
 
 # Build output from multimon-ng build
 /tmp/multimon-ng-build/
+
+# Keep test sample in repo - exclude only recordings
+recordings/

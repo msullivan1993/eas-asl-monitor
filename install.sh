@@ -222,30 +222,16 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-section "Step 5: Download Test Sample"
+section "Step 5: Verify Test Sample"
 
 TEST_SAMPLE="${INSTALL_DIR}/test/same_test.wav"
-TEST_URL="https://www.weather.gov/media/arx/sametest.wav"
 
-if [[ ! -f "$TEST_SAMPLE" ]] || [[ ! -s "$TEST_SAMPLE" ]]; then
-    echo "  Downloading SAME test audio sample..."
-    if command -v wget &>/dev/null; then
-        wget -q "$TEST_URL" -O "$TEST_SAMPLE" 2>/dev/null || true
-    elif command -v curl &>/dev/null; then
-        curl -sL "$TEST_URL" -o "$TEST_SAMPLE" 2>/dev/null || true
-    fi
-    # Verify the file has content — 0-byte files cause silent test failure
-    if [[ -s "$TEST_SAMPLE" ]]; then
-        info "Test sample downloaded ($(du -sh "$TEST_SAMPLE" | cut -f1))"
-    else
-        rm -f "$TEST_SAMPLE"
-        warn "Test sample download failed — decode test will be skipped"
-    fi
+if [[ -s "$TEST_SAMPLE" ]]; then
+    info "Test sample present ($(du -sh "$TEST_SAMPLE" | cut -f1))"
 else
-    info "Test sample already present ($(du -sh "$TEST_SAMPLE" | cut -f1))"
+    warn "Test sample missing -- decode test will be skipped"
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
 section "Step 6: Install systemd Service"
 
 cp "$SERVICE_SRC" "$SERVICE_DEST"
