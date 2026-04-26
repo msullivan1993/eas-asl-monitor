@@ -1097,8 +1097,14 @@ class EASWizard:
             self.cfg['dsnoop_ok'] = True
         else:
             WTail.msgbox(
-                "dsnoop not supported on {} -- this is normal for most USB audio dongles.\n\nThe installer will use the snd-aloop kernel module as a\nloopback bridge instead. This is a fully supported path\nand works reliably on HamVoIP.\n\nNo manual Asterisk config changes are needed.".format(choice),
-                title="dsnoop Not Available"
+                "dsnoop not supported on {}\n\n"
+                "This is normal for most USB audio dongles.\n\n"
+                "The installer will use the snd-aloop kernel module\n"
+                "as a loopback bridge instead. This is a fully\n"
+                "supported path and works reliably on HamVoIP.\n\n"
+                "No manual Asterisk config changes are needed.".format(choice),
+                title="dsnoop Not Available",
+                height=14
             )
             self.cfg['dsnoop_ok'] = False
         return True
@@ -1596,15 +1602,38 @@ class EASWizard:
         WTail.infobox("Looking up counties for {} ZIP code(s)...".format(len(zips)))
 
         all_counties = {}
+        lookup_errors = []
         for z in zips:
             results = lookup_fips(z)
-            for r in results:
-                fips = r['fips']
-                if fips not in all_counties:
-                    state = STATE_FIPS.get(fips[:2], fips[:2])
-                    all_counties[fips] = "{}, {}".format(r['county'], state)
+            if results:
+                for r in results:
+                    fips = r['fips']
+                    if fips not in all_counties:
+                        state = STATE_FIPS.get(fips[:2], fips[:2])
+                        all_counties[fips] = "{}, {}".format(r['county'], state)
+            else:
+                lookup_errors.append(z)
 
         if not all_counties:
+            # Show which ZIPs failed and whether the local file exists
+            import os
+            fips_exists = os.path.exists(FIPS_DATA_FILE)
+            fips_size   = os.path.getsize(FIPS_DATA_FILE) if fips_exists else 0
+            debug_info  = (
+                "FIPS file: {}\n"
+                "File size: {} bytes\n"
+                "ZIPs tried: {}"
+            ).format(
+                "found" if fips_exists else "MISSING",
+                fips_size,
+                ', '.join(lookup_errors)
+            )
+            WTail.msgbox(
+                "Could not find counties for the ZIP code(s) entered.\n\n"
+                + debug_info,
+                title="Lookup Failed -- Debug Info",
+                height=12
+            )
             WTail.msgbox(
                 "Could not find counties for the ZIP code(s) entered.\n\n"
                 "Common causes:\n"
@@ -2012,9 +2041,37 @@ Files to be modified:
 
         WTail.infobox("Running decode test...")
         try:
+            # Check prerequisites individually for clear diagnostics
+            has_sox       = subprocess.call(['which', 'sox'],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
+            has_multimon  = subprocess.call(['which', 'multimon-ng'],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
+            sample_exists = test_sample.exists()
+            sample_size   = test_sample.stat().st_size if sample_exists else 0
+
+            prereqs_ok = has_sox and has_multimon and sample_exists
+
+            if not prereqs_ok:
+                missing = []
+                if not has_sox:      missing.append("sox not installed")
+                if not has_multimon: missing.append("multimon-ng not installed")
+                if not sample_exists:missing.append("test sample missing")
+                WTail.msgbox(
+                    "Cannot run decode test:\n\n"
+                    + "\n".join("  * " + m for m in missing) + "\n\n"
+                    "The test will be skipped. Your configuration has been\n"
+                    "saved and the service will start normally.\n\n"
+                    "To install sox on HamVoIP: pacman -S sox",
+                    title="Test Prerequisites Missing",
+                    height=16
+                )
+                return True
+
             proc = subprocess.run(
-                "sox {} -t raw -r 22050 -e signed -b 16 -c 1 - | multimon-ng -t raw -a EAS -".format(test_sample),
-                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15
+                "sox {} -t raw -r 22050 -e signed -b 16 -c 1 - | "
+                "multimon-ng -t raw -a EAS -".format(test_sample),
+                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True, timeout=15
             )
             output = proc.stdout + proc.stderr
             if 'ZCZC' in output:
@@ -2027,19 +2084,25 @@ Files to be modified:
             else:
                 WTail.msgbox(
                     "SAME decode test FAILED.\n\n"
-                    "multimon-ng did not detect a SAME header.\n\n"
-                    "Common causes:\n"
-                    "  * multimon-ng not installed\n"
-                    "  * sox not installed\n"
-                    "  * Test sample file is corrupt\n\n"
-                    "Check: sudo journalctl -u eas-monitor -f",
+                    "sox and multimon-ng ran but no SAME header was decoded.\n\n"
+                    "Debug info:\n"
+                    "  sox exit code:      {}\n"
+                    "  sample size:        {} bytes\n"
+                    "  output length:      {} chars\n\n"
+                    "This may be a sample format issue. Your configuration\n"
+                    "has been saved -- the service will still work with\n"
+                    "real NOAA WX audio.".format(
+                        proc.returncode, sample_size, len(output)
+                    ),
                     title="Test Failed",
-                    height=16
+                    height=18
                 )
         except Exception as e:
             WTail.msgbox(
-                "Test error: {}\n\nCheck that sox and multimon-ng are installed.".format(e),
-                title="Test Error"
+                "Test error: {}\n\n"
+                "Configuration saved -- service will still start normally.".format(e),
+                title="Test Error",
+                height=10
             )
         return True
 
