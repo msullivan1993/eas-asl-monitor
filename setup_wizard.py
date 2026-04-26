@@ -2101,28 +2101,114 @@ class EASWizard:
     def _custom_alert_types(self):
         selected = []
 
-        categories = [
-            ("Warnings",   WARNING_EVENTS,  True,
-             "WARNING events (imminent threat -- recommended to keep all)"),
-            ("Watches",    WATCH_EVENTS,    False,
-             "WATCH events (conditions favorable -- less urgent)"),
-            ("Advisories", ADVISORY_EVENTS, False,
-             "ADVISORY/STATEMENT events"),
-            ("National",   NATIONAL_EVENTS, True,
-             "NATIONAL events (EAN, EAT -- always recommended)"),
+        # Split into small groups so no checklist exceeds terminal height.
+        # Each group: (title, description, [(code, label, default_on), ...])
+        groups = [
+            (
+                "Convective Warnings",
+                "Thunderstorm, tornado, wind -- highest priority",
+                [('TOR','Tornado Warning',             True),
+                 ('SVR','Severe Thunderstorm Warning', True),
+                 ('EWW','Extreme Wind Warning',        True),
+                 ('SQW','Snow Squall Warning',         True),
+                 ('SMW','Special Marine Warning',      True)]
+            ),
+            (
+                "Flood Warnings",
+                "Flash flood and river flood",
+                [('FFW','Flash Flood Warning',   True),
+                 ('FFS','Flash Flood Statement', True),
+                 ('FLW','Flood Warning',         True),
+                 ('FLS','Flood Statement',       False)]
+            ),
+            (
+                "Tropical / Hurricane",
+                "Tropical storms, hurricanes, typhoons",
+                [('HUW','Hurricane Warning',      True),
+                 ('HLS','Hurricane Local Statement',True),
+                 ('TRW','Tropical Storm Warning', True),
+                 ('TYW','Typhoon Warning',        True)]
+            ),
+            (
+                "Winter Weather Warnings",
+                "Snow, ice, blizzard, freeze",
+                [('BZW','Blizzard Warning',      True),
+                 ('WSW','Winter Storm Warning',  True),
+                 ('ICW','Ice Storm Warning',     True),
+                 ('WCY','Wind Chill Warning',    True),
+                 ('HZW','Hard Freeze Warning',   False),
+                 ('FZW','Freeze Warning',        False)]
+            ),
+            (
+                "Other Weather Warnings",
+                "Dust, volcano, tsunami, earthquake, avalanche, fire",
+                [('DSW','Dust Storm Warning',    True),
+                 ('VOW','Volcano Warning',       True),
+                 ('TSW','Tsunami Warning',       True),
+                 ('EQW','Earthquake Warning',    True),
+                 ('AVW','Avalanche Warning',     False),
+                 ('CFW','Coastal Flood Warning', False),
+                 ('FWW','Red Flag Warning',      False),
+                 ('LSW','Land Slide Warning',    False),
+                 ('AQW','Air Quality Alert',     False)]
+            ),
+            (
+                "Civil / Emergency Warnings",
+                "Law enforcement, civil danger, nuclear, child abduction",
+                [('CEM','Civil Emergency Message',       True),
+                 ('LEW','Law Enforcement Warning',       True),
+                 ('LAE','Local Area Emergency',          True),
+                 ('CAE','Child Abduction Emergency',     True),
+                 ('CDW','Civil Danger Warning',          True),
+                 ('SPW','Shelter In Place Warning',      True),
+                 ('NUW','Nuclear Power Plant Warning',   True),
+                 ('TOE','911 Telephone Outage Emergency',False),
+                 ('ADR','Administrative Message',        False)]
+            ),
+            (
+                "Watches",
+                "Conditions favorable -- less urgent than warnings",
+                [('TOA','Tornado Watch',            False),
+                 ('SVA','Severe Thunderstorm Watch',False),
+                 ('FFA','Flash Flood Watch',        False),
+                 ('FLA','Flood Watch',              False),
+                 ('HUA','Hurricane Watch',          False),
+                 ('TRA','Tropical Storm Watch',     False),
+                 ('TYA','Typhoon Watch',            False),
+                 ('BZA','Blizzard Watch',           False),
+                 ('WSA','Winter Storm Watch',       False),
+                 ('HZA','Hard Freeze Watch',        False),
+                 ('FZA','Freeze Watch',             False),
+                 ('WCA','Wind Chill Watch',         False),
+                 ('AVA','Avalanche Watch',          False),
+                 ('TSA','Tsunami Watch',            False),
+                 ('CFA','Coastal Flood Watch',      False),
+                 ('HWA','High Wind Watch',          False)]
+            ),
+            (
+                "Advisories / National",
+                "Advisories, statements, and national-level alerts",
+                [('EAN','Emergency Action Notification (Presidential)', True),
+                 ('EAT','Emergency Action Termination',                 True),
+                 ('NIC','National Information Center',                  True),
+                 ('NPT','National Periodic Test',                       False),
+                 ('WFA','Wind Advisory',                               False),
+                 ('SVS','Severe Weather Statement',                    False),
+                 ('TCV','Tropical Cyclone Statement',                  False),
+                 ('TXF','Transmitter Carrier Off',                     False),
+                 ('TXS','Transmitter Backup On',                       False)]
+            ),
         ]
 
-        for cat_name, event_dict, default_on, desc in categories:
-            items = [
-                (code, desc_txt, default_on)
-                for code, desc_txt in sorted(event_dict.items())
-            ]
+        total = len(groups)
+        for idx, (title, desc, items) in enumerate(groups):
             sel = WTail.checklist(
-                "{}\n\n"
-                "Space = toggle, Enter = confirm".format(desc),
+                "({}/{}) {}\n\n"
+                "Space = toggle  Enter = confirm".format(
+                    idx+1, total, desc),
                 items,
-                title="Custom -- {}".format(cat_name),
-                height=min(8 + len(items), 22)
+                title="Custom -- {}".format(title),
+                height=min(9 + len(items), 20)
             )
             if sel is None:
                 return None
