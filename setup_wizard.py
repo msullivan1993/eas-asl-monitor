@@ -539,6 +539,86 @@ def generate_wx_serial(index = 1):
 
 # -- FIPS lookup -------------------------------------------------------------
 
+def generate_same_test_wav(fips_codes, out_path):
+    """
+    Generate a synthetic SAME/EAS test WAV using the provided FIPS codes.
+    Encodes a Required Weekly Test (RWT) header as FSK audio so multimon-ng
+    can decode it and verify the full pipeline end-to-end.
+    SAME FSK: mark=2083.3 Hz (1), space=1562.5 Hz (0), 520.83 bps
+    """
+    import math, struct, wave as wave_mod
+
+    SAMPLE_RATE = 22050
+    BAUD        = 520.83
+    MARK_FREQ   = 2083.3
+    SPACE_FREQ  = 1562.5
+
+    # Build SAME header using actual FIPS codes
+    fips_str = '-'.join(fips_codes[:6])  # SAME supports up to 31 FIPS
+    header   = "ZCZC-WXR-RWT-{}+0030-0010100-KCBS/FM--".format(fips_str)
+
+    def byte_to_bits(b):
+        bits = [0]  # start bit
+        for i in range(8):
+            bits.append((b >> i) & 1)
+        bits.append(1)  # stop bit
+        return bits
+
+    def encode_str(s):
+        bits = []
+        for ch in s:
+            bits.extend(byte_to_bits(ord(ch)))
+        return bits
+
+    def encode_preamble():
+        bits = []
+        for _ in range(16):
+            bits.extend(byte_to_bits(0xAB))
+        return bits
+
+    def fsk(bits, phase=0.0):
+        samples = []
+        t = 0.0
+        for bit in bits:
+            freq  = MARK_FREQ if bit else SPACE_FREQ
+            n_end = t + SAMPLE_RATE / BAUD
+            while int(t) < int(n_end):
+                samples.append(math.sin(phase))
+                phase += 2.0 * math.pi * freq / SAMPLE_RATE
+                t += 1
+            t = n_end
+        return samples, phase
+
+    def silence(secs):
+        return [0.0] * int(SAMPLE_RATE * secs)
+
+    header_bits = encode_preamble() + encode_str(header)
+    eom_bits    = encode_preamble() + encode_str("NNNN")
+
+    samples = []
+    phase   = 0.0
+    for _ in range(3):
+        s, phase = fsk(header_bits, phase)
+        samples.extend(s)
+        samples.extend(silence(0.5))
+    samples.extend(silence(1.0))
+    for _ in range(3):
+        s, phase = fsk(eom_bits, phase)
+        samples.extend(s)
+        samples.extend(silence(0.5))
+
+    peak = max(abs(x) for x in samples) or 1.0
+    pcm  = [int(x / peak * 28000) for x in samples]
+
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    with wave_mod.open(str(out_path), 'w') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(struct.pack('<%dh' % len(pcm), *pcm))
+    return header
+
+
 def download_fips_data():
     """Download ZCTA-to-county relationship file from Census Bureau."""
     Path(FIPS_DATA_FILE).parent.mkdir(parents=True, exist_ok=True)
@@ -1656,7 +1736,7 @@ class EASWizard:
         else:
             return self._fips_manual()
 
-    def _fips_from_zip(self):
+    def _fips_from_zip(self, existing=None):
         zips_input = WTail.inputbox(
             "Enter ZIP code(s) for your coverage area:\n\n"
             "Separate multiple ZIP codes with commas.\n"
@@ -1676,7 +1756,7 @@ class EASWizard:
 
         WTail.infobox("Looking up counties for {} ZIP code(s)...".format(len(zips)))
 
-        all_counties = {}
+        all_counties  = dict(existing) if existing else {}
         lookup_errors = []
         for z in zips:
             results = lookup_fips(z)
@@ -1684,7 +1764,9 @@ class EASWizard:
                 for r in results:
                     fips = r['fips']
                     if fips not in all_counties:
-                        state = STATE_FIPS.get(fips[:2], fips[:2])
+                        # r['state'] is 2-digit (e.g. '21'=KY)
+                        # fips[:2] is wrong: '021019'[:2]='02'=Alaska
+                        state = STATE_FIPS.get(r['state'], r['state'])
                         all_counties[fips] = "{}, {}".format(r['county'], state)
             else:
                 lookup_errors.append(z)
@@ -1748,6 +1830,21 @@ class EASWizard:
         self.cfg['selected_fips'] = {
             fips: all_counties[fips] for fips in selected
         }
+
+        # Offer to look up additional ZIP codes
+        if WTail.yesno(
+            "Added {} county/counties.\n\n"
+            "Would you like to look up additional ZIP codes\n"
+            "to add more counties to your coverage area?".format(len(selected)),
+            title="Add More Counties?",
+            yes_btn="Add More",
+            no_btn="Done",
+            default_yes=False
+        ):
+            # Merge additional results into existing selection
+            extra = self._fips_from_zip(existing=self.cfg['selected_fips'])
+            if extra:
+                self.cfg['selected_fips'] = extra
         return True
 
     def _fips_manual(self):
@@ -2117,6 +2214,16 @@ Files to be modified:
             no_btn="Skip"
         ):
             return True
+
+        # Regenerate test sample with the actual selected FIPS codes
+        fips_list = list(self.cfg.get('selected_fips', {}).keys())
+        if fips_list:
+            try:
+                WTail.infobox("Generating SAME test sample with your FIPS codes...")
+                header = generate_same_test_wav(fips_list, test_sample)
+                self.log_msg = "Test header: " + header
+            except Exception:
+                pass  # Fall back to bundled sample if generation fails
 
         WTail.infobox("Running decode test...")
         try:
