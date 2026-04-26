@@ -20,6 +20,9 @@ def get_source(config):
     elif source_type == 'stream':
         from .stream import StreamSource
         return StreamSource(config)
+    elif source_type == 'usrp_node':
+        from .usrp_node import USRPNodeSource
+        return USRPNodeSource(config)
     else:
         raise ValueError(
             "Unknown audio_source: '%s'. "

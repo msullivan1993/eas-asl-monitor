@@ -834,6 +834,8 @@ def write_config(cfg):
         'log_file':         LOG_FILE,
         'max_link_duration': '3600',
         'active_events':    ','.join(sorted(cfg.get('active_events', []))),
+        'usrp_private_node': cfg.get('usrp_private_node', ''),
+
         'act_on_warnings':  'true',
         'act_on_watches':   'true' if cfg.get('act_watches') else 'false',
         'act_on_tests':     'true' if cfg.get('act_tests') else 'false',
@@ -884,6 +886,13 @@ def write_config(cfg):
                 'sample_rate': '22050',
                 'reconnect_delay': '30',
             }
+
+    # [source_usrp_node]
+    if cfg.get('audio_source') == 'usrp_node':
+        c['source_usrp_node'] = {
+            'node':    cfg.get('usrp_private_node', '1998'),
+            'rx_port': cfg.get('usrp_rx_port', '34001'),
+        }
 
     # [usrp_nodes] -- for sources that need audio injection
     if cfg.get('usrp_nodes'):
@@ -1245,6 +1254,8 @@ class EASWizard:
              'RTL-SDR dongle (~$25, software defined radio)'),
             ('stream',
              'Internet stream -- Broadcastify or free URL (no hardware)'),
+            ('usrp_node',
+             'USRP node -- receive audio from Asterisk via private ASL node'),
         ]
         choice = WTail.menu(
             "Select your audio source:\n\n"
@@ -1267,6 +1278,8 @@ class EASWizard:
             return self._config_rtlsdr()
         elif src == 'stream':
             return self._config_stream()
+        elif src == 'usrp_node':
+            return self._config_usrp_node()
         return True
 
     def _config_usb_shared(self):
@@ -1395,6 +1408,169 @@ class EASWizard:
             return False
         self.cfg['ppm'] = int(ppm) if ppm.lstrip('-').isdigit() else 0
         return True
+
+    def _config_usrp_node(self):
+        """Configure private USRP node audio source."""
+        radio_node = self.cfg.get('local_node', '')
+
+        WTail.msgbox(
+            "USRP Node Audio Source\n\n"
+            "This creates a private AllStarLink node in Asterisk that\n"
+            "your weather radio node connects to in monitor mode.\n\n"
+            "Audio path:\n"
+            "  Radio node ({}) -> ilink 8 -> Private USRP node\n"
+            "  -> UDP -> EAS monitor -> multimon-ng\n\n"
+            "Two additive stanzas will be written to:\n"
+            "  /etc/asterisk/rpt.conf\n"
+            "  /etc/asterisk/extensions.conf\n\n"
+            "NO existing config is modified.".format(radio_node),
+            title="USRP Node Source",
+            height=18
+        )
+
+        # Private node number
+        private_node = WTail.inputbox(
+            "Enter a private node number for the EAS monitor listener.\n\n"
+            "This should be a number NOT registered on the AllStarLink\n"
+            "network -- private/local nodes typically use numbers like\n"
+            "1998, 2000, 9998, etc.\n\n"
+            "It must be different from your radio node ({}).".format(
+                radio_node),
+            default=self.cfg.get('usrp_private_node', '1998'),
+            title="Private Node Number",
+            height=14
+        )
+        if private_node is None:
+            return None
+        private_node = private_node.strip()
+        if not private_node.isdigit():
+            WTail.msgbox("Node number must be numeric.",
+                         title="Invalid Input")
+            return self._config_usrp_node()
+        if private_node == radio_node:
+            WTail.msgbox("Private node must be different from your radio node.",
+                         title="Invalid Input")
+            return self._config_usrp_node()
+
+        # UDP port
+        rx_port_str = WTail.inputbox(
+            "Enter the UDP port for USRP audio.\n\n"
+            "Asterisk will send audio TO this port on 127.0.0.1.\n"
+            "The EAS monitor will listen on this port.\n\n"
+            "Default 34001 is fine unless you have a port conflict.",
+            default=self.cfg.get('usrp_rx_port', '34001'),
+            title="USRP UDP Port",
+            height=13
+        )
+        if rx_port_str is None:
+            return None
+        try:
+            rx_port = int(rx_port_str.strip())
+        except ValueError:
+            WTail.msgbox("Port must be numeric.", title="Invalid Input")
+            return self._config_usrp_node()
+
+        self.cfg['usrp_private_node'] = private_node
+        self.cfg['usrp_rx_port']      = str(rx_port)
+        self.cfg['audio_source']      = 'usrp_node'
+
+        # Generate and show the Asterisk config additions
+        rpt_stanza = (
+            "\n"
+            "; === EAS Monitor private listener node (added by eas-monitor installer) ===\n"
+            "[{node}]\n"
+            "rxchannel=USRP/127.0.0.1:{rx}:{tx}\n"
+            "duplex=0\n"
+            "scheduler=rpt-sched\n"
+        ).format(node=private_node, rx=rx_port, tx=rx_port + 1)
+
+        ext_stanza = (
+            "\n"
+            "; === EAS Monitor private node (added by eas-monitor installer) ===\n"
+            "exten => {node},1,Rpt({node})\n"
+        ).format(node=private_node)
+
+        confirmed = WTail.yesno(
+            "The following will be APPENDED to Asterisk config files.\n"
+            "No existing lines will be changed.\n\n"
+            "rpt.conf addition:\n"
+            "  [{node}]\n"
+            "  rxchannel=USRP/127.0.0.1:{rx}:{tx}\n"
+            "  duplex=0\n\n"
+            "extensions.conf addition:\n"
+            "  exten => {node},1,Rpt({node})\n\n"
+            "After applying, Asterisk will be reloaded.\n"
+            "Proceed?".format(
+                node=private_node, rx=rx_port, tx=rx_port + 1),
+            title="Confirm Asterisk Config",
+            yes_btn="Apply",
+            no_btn="Cancel",
+            height=20
+        )
+
+        if confirmed:
+            self.cfg['usrp_rpt_stanza'] = rpt_stanza
+            self.cfg['usrp_ext_stanza'] = ext_stanza
+            self.cfg['usrp_apply_config'] = True
+        else:
+            self.cfg['usrp_apply_config'] = False
+
+        return True
+
+    def _apply_usrp_node_config(self):
+        """Append USRP node stanzas to Asterisk config files."""
+        if not self.cfg.get('usrp_apply_config'):
+            return
+
+        rpt_stanza = self.cfg.get('usrp_rpt_stanza', '')
+        ext_stanza = self.cfg.get('usrp_ext_stanza', '')
+
+        if rpt_stanza:
+            try:
+                with open('/etc/asterisk/rpt.conf', 'a') as f:
+                    f.write(rpt_stanza)
+            except Exception as e:
+                WTail.msgbox(
+                    "Could not write to /etc/asterisk/rpt.conf:\n{}\n\n"
+                    "Add this manually:\n{}".format(e, rpt_stanza),
+                    title="Config Write Failed", height=14)
+
+        if ext_stanza:
+            # Find the right context to append to
+            ext_path = '/etc/asterisk/extensions.conf'
+            try:
+                with open(ext_path) as f:
+                    ext_content = f.read()
+                # Append to radio-secure context if it exists, else append at end
+                if '[radio-secure]' in ext_content:
+                    ext_content = ext_content.replace(
+                        '[radio-secure]',
+                        '[radio-secure]' + ext_stanza,
+                        1
+                    )
+                    with open(ext_path, 'w') as f:
+                        f.write(ext_content)
+                else:
+                    with open(ext_path, 'a') as f:
+                        f.write('\n[radio-secure]\n' + ext_stanza)
+            except Exception as e:
+                WTail.msgbox(
+                    "Could not write to {}:\n{}\n\n"
+                    "Add this manually:\n{}".format(ext_path, e, ext_stanza),
+                    title="Config Write Failed", height=14)
+
+        # Reload Asterisk dialplan
+        try:
+            subprocess.call(
+                ['asterisk', '-rx', 'dialplan reload'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            subprocess.call(
+                ['asterisk', '-rx', 'module reload chan_usrp.so'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+        except Exception:
+            pass
 
     def _config_stream(self):
         choice = WTail.menu(
@@ -2363,6 +2539,9 @@ Files to be modified:
         )
 
     def screen_apply(self):
+        # Apply USRP node config to Asterisk if needed
+        if self.cfg.get("audio_source") == "usrp_node":
+            self._apply_usrp_node_config()
         steps = [
             ("Creating directories...",
              lambda: Path(INSTALL_DIR).mkdir(parents=True, exist_ok=True)),
