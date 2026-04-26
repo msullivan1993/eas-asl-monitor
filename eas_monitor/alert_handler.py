@@ -1,17 +1,12 @@
 """
 alert_handler.py - SAME/EAS Alert Handler
-==========================================
-Parses multimon-ng output, decodes SAME headers, filters events,
-and orchestrates node connections and audio recording.
+Python 3.5 compatible.
 """
 
 import configparser
 import logging
 import re
 import time
-
-
-# ── EAS Event Code Definitions ────────────────────────────────────────────
 
 WARNING_EVENTS = {
     'TOR': 'Tornado Warning',
@@ -56,20 +51,21 @@ TEST_EVENTS = {
     'RWT': 'Required Weekly Test',
 }
 
-ALL_EVENTS = {**WARNING_EVENTS, **WATCH_EVENTS, **NATIONAL_EVENTS, **TEST_EVENTS}
-
-# ── SAME Header Regex ──────────────────────────────────────────────────────
+ALL_EVENTS = {}
+ALL_EVENTS.update(WARNING_EVENTS)
+ALL_EVENTS.update(WATCH_EVENTS)
+ALL_EVENTS.update(NATIONAL_EVENTS)
+ALL_EVENTS.update(TEST_EVENTS)
 
 SAME_RE = re.compile(
     r'ZCZC-(?P<org>\w+)-(?P<event>\w+)-(?P<fips>[\d\-]+)'
     r'\+(?P<purge>\d{4})-(?P<issued>\d{7})-(?P<callsign>[^\-\s]+)-?'
 )
 
-DEDUP_WINDOW = 120   # seconds — SAME sends header 3x, suppress dupes
+DEDUP_WINDOW = 120
 
 
-def purge_to_seconds(hhmm: str) -> int:
-    """Convert SAME purge time (HHMM) to seconds."""
+def purge_to_seconds(hhmm):
     try:
         hh = int(hhmm[:2])
         mm = int(hhmm[2:])
@@ -78,24 +74,14 @@ def purge_to_seconds(hhmm: str) -> int:
         return 3600
 
 
-def parse_same_header(line: str) -> dict | None:
-    """
-    Parse a SAME header line from multimon-ng output.
-    multimon-ng prefix: 'EAS: ' optionally preceded by a timestamp.
-    Returns a dict or None if unparseable.
-    """
-    # Strip multimon-ng timestamp prefix if present
-    # Format: "YYYY-MM-DD HH:MM:SS:mmm -- EAS: ZCZC-..."
+def parse_same_header(line):
     clean = re.sub(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d+ -- ', '', line)
     clean = clean.replace('EAS: ', '').strip()
-
     m = SAME_RE.search(clean)
     if not m:
         return None
-
     fips_codes = re.findall(r'\d{6}', m.group('fips'))
     purge_hhmm = m.group('purge')
-
     return {
         'org':        m.group('org'),
         'event':      m.group('event'),
@@ -108,28 +94,15 @@ def parse_same_header(line: str) -> dict | None:
     }
 
 
-class AlertHandler:
-    """
-    Central alert processing engine.
+class AlertHandler(object):
 
-    Receives decoded SAME headers from the pipeline, filters them,
-    deduplicates them, and orchestrates:
-      - Node connections via LinkManager
-      - Audio recording via AlertRecorder
-      - USRP PTT control via USRPSink
-    """
-
-    def __init__(self, config: configparser.ConfigParser,
-                 link_mgr,
-                 recorder=None,
-                 usrp_sink=None,
-                 log: logging.Logger = None):
+    def __init__(self, config, link_mgr, recorder=None,
+                 usrp_sink=None, log=None):
         self.link_mgr  = link_mgr
         self.recorder  = recorder
         self.usrp_sink = usrp_sink
         self.log       = log or logging.getLogger('eas_monitor.handler')
 
-        # Load config
         self.fips_map       = dict(config['fips_map']) \
                               if 'fips_map' in config else {}
         self.event_override = dict(config['event_node_override']) \
@@ -144,40 +117,28 @@ class AlertHandler:
         self.act_tests    = config.getboolean(
             'settings', 'act_on_tests',    fallback=False)
 
-        # Deduplication: event_id → timestamp
-        self._seen: dict[str, float] = {}
+        self._seen = {}
 
-    # ── Deduplication ──────────────────────────────────────────────────────
-
-    def _event_id(self, p: dict) -> str:
-        """
-        Unique ID for deduplication.
-        Includes callsign so simultaneous alerts from different NWS offices
-        serving the same area are not incorrectly suppressed.
-        """
-        return (
-            f"{p['org']}-{p['event']}-"
-            f"{'-'.join(sorted(p['fips_codes']))}-"
-            f"{p['issued']}-{p['callsign']}"
+    def _event_id(self, p):
+        return "%s-%s-%s-%s-%s" % (
+            p['org'], p['event'],
+            '-'.join(sorted(p['fips_codes'])),
+            p['issued'], p['callsign']
         )
 
-    def _is_duplicate(self, event_id: str) -> bool:
+    def _is_duplicate(self, event_id):
         now = time.time()
         if event_id in self._seen:
             if now - self._seen[event_id] < DEDUP_WINDOW:
                 return True
         self._seen[event_id] = now
-        # Clean expired entries
         self._seen = {
             k: v for k, v in self._seen.items()
             if now - v < DEDUP_WINDOW * 2
         }
         return False
 
-    # ── Event filtering ─────────────────────────────────────────────────────
-
-    def _should_act(self, event: str) -> bool:
-        """Returns True if this event type should trigger node connections."""
+    def _should_act(self, event):
         behavior = self.behavior.get(event, '').lower()
         if behavior == 'skip':
             return False
@@ -191,63 +152,51 @@ class AlertHandler:
             return True
         return False
 
-    def _get_mode(self, event: str) -> str:
-        """Return 'propagate' or 'local' for this event type."""
+    def _get_mode(self, event):
         behavior = self.behavior.get(event, 'propagate').lower()
         return 'local' if behavior == 'local' else 'propagate'
 
-    # ── FIPS matching ───────────────────────────────────────────────────────
-
-    def _resolve_nodes(self, fips_codes: list) -> set:
-        """
-        Resolve a list of FIPS codes to target ASL node numbers.
-        Supports exact county match and state wildcard (SSS000).
-        """
+    def _resolve_nodes(self, fips_codes):
         nodes = set()
         for fips in fips_codes:
-            # Exact county match
             if fips in self.fips_map:
                 nodes.add(self.fips_map[fips])
-            # State wildcard: e.g., 039000 matches all Ohio counties
             state_wild = fips[:3] + '000'
             if state_wild in self.fips_map:
                 nodes.add(self.fips_map[state_wild])
         return nodes
 
-    # ── Main event handlers ─────────────────────────────────────────────────
-
-    def handle_header(self, line: str):
-        """Process a SAME header line from multimon-ng."""
+    def handle_header(self, line):
         parsed = parse_same_header(line)
         if not parsed:
-            self.log.debug(f"Unparseable SAME line: {line[:80]}")
+            self.log.debug("Unparseable SAME line: %s", line[:80])
             return
 
         event_id = self._event_id(parsed)
         if self._is_duplicate(event_id):
-            self.log.debug(f"Duplicate SAME header suppressed: {event_id[:60]}")
+            self.log.debug("Duplicate SAME header suppressed: %s",
+                           event_id[:60])
             return
 
         event = parsed['event']
         self.log.info(
-            f"ALERT: {event} ({ALL_EVENTS.get(event, 'Unknown')}) | "
-            f"Org: {parsed['org']} | FIPS: {parsed['fips_codes']} | "
-            f"Purge: {parsed['purge_secs']//60}min | "
-            f"From: {parsed['callsign']}"
+            "ALERT: %s (%s) | Org: %s | FIPS: %s | "
+            "Purge: %dmin | From: %s",
+            event, ALL_EVENTS.get(event, 'Unknown'),
+            parsed['org'], parsed['fips_codes'],
+            parsed['purge_secs'] // 60, parsed['callsign']
         )
 
         if not self._should_act(event):
-            self.log.info(f"Event '{event}' not in active set — no action")
+            self.log.info("Event '%s' not in active set — no action", event)
             return
 
-        mode         = self._get_mode(event)
-        purge_secs   = parsed['purge_secs']
+        mode       = self._get_mode(event)
+        purge_secs = parsed['purge_secs']
 
-        # Start USRP audio if applicable
         if self.usrp_sink:
             self.usrp_sink.key_up()
 
-        # Start recording
         if self.recorder:
             self.recorder.start(
                 event=event,
@@ -255,59 +204,48 @@ class AlertHandler:
                 callsign=parsed['callsign']
             )
 
-        # National/presidential event override
         if event in self.event_override:
             target = self.event_override[event]
-            self.link_mgr.connect(target, purge_secs, mode='propagate',
-                                  event=event)
+            self.link_mgr.connect(target, purge_secs,
+                                  mode='propagate', event=event)
             return
 
-        # Local mode — connect public node to local EAS node, no remote nodes
         if mode == 'local':
-            self.link_mgr.connect(None, purge_secs, mode='local', event=event)
+            self.link_mgr.connect(None, purge_secs,
+                                  mode='local', event=event)
             return
 
-        # Propagate mode — connect to FIPS-mapped remote nodes
         nodes = self._resolve_nodes(parsed['fips_codes'])
         if not nodes:
             self.log.info(
-                f"No FIPS mapping for {parsed['fips_codes']} — "
-                f"no nodes connected"
+                "No FIPS mapping for %s — no nodes connected",
+                parsed['fips_codes']
             )
-            # Still key up USRP and record even if no remote nodes configured
             return
 
         for node in nodes:
-            self.link_mgr.connect(node, purge_secs, mode='propagate',
-                                  event=event)
+            self.link_mgr.connect(node, purge_secs,
+                                  mode='propagate', event=event)
 
     def handle_eom(self):
-        """Process End-of-Message (NNNN) from multimon-ng."""
         self.log.info("EOM received")
-
-        # Stop recording
         if self.recorder and self.recorder.is_active:
             path = self.recorder.stop()
             if path:
-                self.log.info(f"Alert recording saved: {path}.ulaw")
-
-        # Drop USRP PTT
+                self.log.info("Alert recording saved: %s.ulaw", path)
         if self.usrp_sink:
             self.usrp_sink.key_down()
-
-        # Disconnect all nodes
         self.link_mgr.disconnect_all()
 
     def check_timeouts(self):
-        """Call periodically to disconnect expired links."""
         if self.link_mgr.has_active_links:
             self.link_mgr.check_timeouts()
-
-        # If all links disconnected by timeout, clean up audio
         if not self.link_mgr.has_active_links:
             if self.recorder and self.recorder.is_active:
                 path = self.recorder.stop()
                 if path:
-                    self.log.info(f"Alert recording saved (timeout): {path}.ulaw")
+                    self.log.info(
+                        "Alert recording saved (timeout): %s.ulaw", path
+                    )
             if self.usrp_sink and self.usrp_sink.is_keyed:
                 self.usrp_sink.key_down()

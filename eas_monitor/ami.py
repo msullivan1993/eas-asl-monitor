@@ -1,31 +1,19 @@
 """
 ami.py - Asterisk Manager Interface
 ====================================
-Hardened AMI client with retry on transient failures (Asterisk reload,
-brief unavailability). Asterisk takes 2-10s to reload — without retry,
-an alert during a reload window silently connects no nodes.
-
-Retry policy:
-  - 3 attempts, 2s apart
-  - Only retries on connection failure; a successful login with a bad
-    command response is logged but not retried (command may have run)
-  - dry_run mode logs all commands without touching Asterisk
+Hardened AMI client with retry on transient failures.
+Python 3.5 compatible — no f-strings, no X|Y type hints.
 """
 
 import logging
 import socket
 import time
 
-# How many times to attempt an AMI command before giving up
 AMI_RETRIES    = 3
-AMI_RETRY_WAIT = 2.0   # seconds between retries
+AMI_RETRY_WAIT = 2.0
 
 
-class AsteriskAMI:
-    """
-    Lightweight AMI client. Opens a new connection per command to avoid
-    session state issues on long-running processes.
-    """
+class AsteriskAMI(object):
 
     def __init__(self, host='127.0.0.1', port=5038,
                  user='eas_monitor', secret='',
@@ -37,145 +25,101 @@ class AsteriskAMI:
         self.dry_run = dry_run
         self.log     = log or logging.getLogger('eas_monitor.ami')
 
-    # ── Low-level ──────────────────────────────────────────────────────────
-
     def _connect(self):
-        """Open and authenticate an AMI socket. Returns socket or None."""
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(5)
             s.connect((self.host, self.port))
-            s.recv(1024)   # consume banner
-
+            s.recv(1024)
             login = (
-                f"Action: Login\r\n"
-                f"Username: {self.user}\r\n"
-                f"Secret: {self.secret}\r\n\r\n"
-            )
+                "Action: Login\r\n"
+                "Username: %s\r\n"
+                "Secret: %s\r\n\r\n"
+            ) % (self.user, self.secret)
             s.sendall(login.encode())
             resp = s.recv(1024).decode(errors='replace')
-
             if 'Success' not in resp:
-                self.log.warning(f"AMI login rejected: {resp[:80]}")
+                self.log.warning("AMI login rejected: %s", resp[:80])
                 s.close()
                 return None
             return s
-
         except ConnectionRefusedError:
-            self.log.warning(
-                f"AMI connection refused — Asterisk may be reloading"
-            )
+            self.log.warning("AMI connection refused — Asterisk may be reloading")
         except socket.timeout:
-            self.log.warning(
-                f"AMI connection timed out ({self.host}:{self.port})"
-            )
+            self.log.warning("AMI connection timed out (%s:%s)", self.host, self.port)
         except Exception as e:
-            self.log.warning(f"AMI connect error: {e}")
-
+            self.log.warning("AMI connect error: %s", e)
         return None
 
-    def _send(self, action: str) -> str:
-        """
-        Send an AMI action with automatic retry on transient failures.
-        Returns the response string, or '' if all attempts failed.
-        """
+    def _send(self, action):
         if self.dry_run:
-            self.log.info(f"[DRY RUN] AMI: {action.strip()[:80]}")
+            self.log.info("[DRY RUN] AMI: %s", action.strip()[:80])
             return "Response: Success"
-
         for attempt in range(1, AMI_RETRIES + 1):
             s = self._connect()
             if s is None:
                 if attempt < AMI_RETRIES:
                     self.log.warning(
-                        f"AMI not available — retry {attempt}/{AMI_RETRIES} "
-                        f"in {AMI_RETRY_WAIT}s"
+                        "AMI not available — retry %d/%d in %ss",
+                        attempt, AMI_RETRIES, AMI_RETRY_WAIT
                     )
                     time.sleep(AMI_RETRY_WAIT)
                 else:
                     self.log.error(
-                        f"AMI unavailable after {AMI_RETRIES} attempts. "
-                        f"Alert will not connect nodes."
+                        "AMI unavailable after %d attempts. "
+                        "Alert will not connect nodes.", AMI_RETRIES
                     )
                 continue
-
             try:
                 s.sendall(action.encode())
                 time.sleep(0.1)
                 resp = s.recv(4096).decode(errors='replace')
                 return resp
-
             except Exception as e:
-                self.log.warning(
-                    f"AMI send error (attempt {attempt}): {e}"
-                )
+                self.log.warning("AMI send error (attempt %d): %s", attempt, e)
                 if attempt < AMI_RETRIES:
                     time.sleep(AMI_RETRY_WAIT)
-
             finally:
                 try:
                     s.close()
                 except Exception:
                     pass
-
         return ''
 
-    # ── Public interface ───────────────────────────────────────────────────
-
-    def rpt_cmd(self, node: str, command: str) -> bool:
-        """Issue an rpt command to a local node via AMI."""
+    def rpt_cmd(self, node, command):
         action = (
-            f"Action: Command\r\n"
-            f"Command: rpt cmd {node} {command}\r\n\r\n"
-        )
+            "Action: Command\r\n"
+            "Command: rpt cmd %s %s\r\n\r\n"
+        ) % (node, command)
         resp = self._send(action)
         ok   = 'Response: Success' in resp or self.dry_run
         if not ok and resp:
-            self.log.warning(
-                f"rpt cmd {node} {command} may have failed: "
-                f"{resp.strip()[:80]}"
-            )
+            self.log.warning("rpt cmd %s %s may have failed: %s",
+                             node, command, resp.strip()[:80])
         elif not ok:
-            self.log.warning(
-                f"rpt cmd {node} {command} — no response (Asterisk down?)"
-            )
+            self.log.warning("rpt cmd %s %s — no response (Asterisk down?)",
+                             node, command)
         return ok
 
-    def ilink_connect_transceive(self, local_node: str,
-                                 remote_node: str) -> bool:
-        """
-        ilink 3 — connect local_node to remote_node in transceive mode.
-        Audio propagates through remote_node's entire connected network.
-        """
-        self.log.info(
-            f"AMI: ilink 3  {local_node} → {remote_node}  (transceive)"
-        )
-        return self.rpt_cmd(local_node, f"ilink 3 {remote_node}")
+    def ilink_connect_transceive(self, local_node, remote_node):
+        self.log.info("AMI: ilink 3  %s -> %s  (transceive)",
+                      local_node, remote_node)
+        return self.rpt_cmd(local_node, "ilink 3 %s" % remote_node)
 
-    def ilink_connect_local_monitor(self, listener_node: str,
-                                    source_node: str) -> bool:
-        """
-        ilink 8 — listener_node monitors source_node locally.
-        Audio NOT retransmitted to listener's RF or linked network.
-        Both nodes must be on this Asterisk instance.
-        """
-        self.log.info(
-            f"AMI: ilink 8  {listener_node} ← {source_node}  (local monitor)"
-        )
-        return self.rpt_cmd(listener_node, f"ilink 8 {source_node}")
+    def ilink_connect_local_monitor(self, listener_node, source_node):
+        self.log.info("AMI: ilink 8  %s <- %s  (local monitor)",
+                      listener_node, source_node)
+        return self.rpt_cmd(listener_node, "ilink 8 %s" % source_node)
 
-    def ilink_disconnect(self, node_a: str, node_b: str) -> bool:
-        """ilink 1 — disconnect a specific link between two nodes."""
-        self.log.info(f"AMI: ilink 1  disconnect {node_a} ↔ {node_b}")
-        return self.rpt_cmd(node_a, f"ilink 1 {node_b}")
+    def ilink_disconnect(self, node_a, node_b):
+        self.log.info("AMI: ilink 1  disconnect %s <-> %s", node_a, node_b)
+        return self.rpt_cmd(node_a, "ilink 1 %s" % node_b)
 
-    def localplay(self, node: str, filepath: str) -> bool:
-        """Play a file on a local node (does not propagate)."""
-        self.log.info(f"AMI: localplay {node}  {filepath}")
-        return self.rpt_cmd(node, f"localplay {filepath}")
+    def localplay(self, node, filepath):
+        self.log.info("AMI: localplay %s  %s", node, filepath)
+        return self.rpt_cmd(node, "localplay %s" % filepath)
 
-    def test_connection(self) -> bool:
-        """Returns True if AMI login succeeds."""
+    def test_connection(self):
         if self.dry_run:
             return True
         s = self._connect()
@@ -184,16 +128,12 @@ class AsteriskAMI:
             return True
         return False
 
-    def is_module_loaded(self, module_name: str) -> bool:
-        """
-        Check whether an Asterisk module is currently loaded.
-        Used at startup to verify chan_usrp.so is present.
-        """
+    def is_module_loaded(self, module_name):
         if self.dry_run:
             return True
         action = (
-            f"Action: Command\r\n"
-            f"Command: module show like {module_name}\r\n\r\n"
-        )
+            "Action: Command\r\n"
+            "Command: module show like %s\r\n\r\n"
+        ) % module_name
         resp = self._send(action)
         return module_name in resp

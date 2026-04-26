@@ -268,7 +268,7 @@ write = command,system
 permit = 127.0.0.1/255.255.255.0
 AMIEOF
             info "AMI user added"
-            asterisk -rx "manager reload" 2>/dev/null && \
+            asterisk -rx "module reload manager" 2>/dev/null && \
                 info "Asterisk manager reloaded" || true
         fi
     else

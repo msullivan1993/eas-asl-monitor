@@ -1,30 +1,14 @@
 """
 recorder.py - Alert Audio Recorder
-=====================================
-Captures audio during SAME alerts, converts to 8kHz ulaw, and saves
-to a rotating buffer for DTMF playback via rpt localplay.
-
-Hardening:
-  - Checks available disk space before starting each recording
-  - Validates audio conversion dependencies at import time and fails
-    loudly (not silently) if neither audioop nor numpy is available —
-    prevents writing garbage ulaw files that Asterisk would play as noise
-  - All file I/O is exception-safe; recording failure never affects the
-    main alert pipeline
-  - Duplicate start() calls are ignored (not an error)
+Python 3.5 compatible.
 """
 
 import json
 import logging
 import os
-import shutil
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-
-# ── Dependency check ────────────────────────────────────────────────────────
-# Performed at import time so main() gets a clear error before any audio
-# processing is attempted, rather than a confusing failure mid-alert.
 
 HAS_AUDIOOP = False
 HAS_NUMPY   = False
@@ -41,27 +25,23 @@ try:
 except ImportError:
     pass
 
-# Expose result for main() to check
 CONVERSION_AVAILABLE = HAS_AUDIOOP or HAS_NUMPY
 CONVERSION_METHOD    = ('audioop' if HAS_AUDIOOP else
                         'numpy'   if HAS_NUMPY   else
                         'none')
 
-# ── Constants ──────────────────────────────────────────────────────────────
-
-MIN_FREE_MB    = 25     # minimum MB before recording is skipped
-SAMPLE_RATE_IN = 22050  # incoming PCM rate (from multimon pipeline)
-SAMPLE_RATE_OUT = 8000  # Asterisk ulaw rate
+MIN_FREE_MB     = 25
+SAMPLE_RATE_IN  = 22050
+SAMPLE_RATE_OUT = 8000
 
 
-class AlertRecorder:
+class AlertRecorder(object):
 
     DEFAULT_DIR = '/var/lib/eas_monitor/recordings'
     DEFAULT_MAX = 5
 
-    def __init__(self, directory=DEFAULT_DIR, max_recordings=DEFAULT_MAX,
-                 log=None):
-        self.directory       = Path(directory)
+    def __init__(self, directory=None, max_recordings=DEFAULT_MAX, log=None):
+        self.directory       = Path(directory or self.DEFAULT_DIR)
         self.max_recordings  = max_recordings
         self.log             = log or logging.getLogger('eas_monitor.recorder')
         self._active         = False
@@ -73,35 +53,27 @@ class AlertRecorder:
 
         if not CONVERSION_AVAILABLE:
             self.log.error(
-                "ALERT RECORDING DISABLED: neither audioop nor numpy is "
-                "available. Install numpy: "
-                "pip install numpy --break-system-packages"
+                "ALERT RECORDING DISABLED: neither audioop nor numpy available. "
+                "Install numpy: pip install numpy --break-system-packages"
             )
         else:
-            self.log.debug(f"Recorder ready (conversion: {CONVERSION_METHOD})")
+            self.log.debug("Recorder ready (conversion: %s)", CONVERSION_METHOD)
 
     @property
-    def is_active(self) -> bool:
+    def is_active(self):
         return self._active
 
-    # ── Recording control ──────────────────────────────────────────────────
-
-    def start(self, event: str, fips_codes: list, callsign: str):
-        """Begin recording. Called when SAME header is decoded."""
+    def start(self, event, fips_codes, callsign):
         if self._active:
-            self.log.debug("Recorder already active — ignoring start()")
             return
-
         if not CONVERSION_AVAILABLE:
-            return   # Already logged at init time
-
+            return
         if not self._check_disk_space():
             self.log.error(
-                f"Insufficient disk space (< {MIN_FREE_MB}MB) — "
-                f"recording skipped"
+                "Insufficient disk space (< %dMB) — recording skipped",
+                MIN_FREE_MB
             )
             return
-
         self._active         = True
         self._buffer         = BytesIO()
         self._resample_state = None
@@ -111,10 +83,9 @@ class AlertRecorder:
             'callsign': callsign,
             'started':  datetime.now().isoformat()
         }
-        self.log.debug(f"Recording started: {event} {fips_codes}")
+        self.log.debug("Recording started: %s %s", event, fips_codes)
 
-    def write(self, pcm_22050: bytes):
-        """Accumulate incoming 22050Hz PCM, converted to 8kHz ulaw."""
+    def write(self, pcm_22050):
         if not self._active:
             return
         try:
@@ -122,78 +93,59 @@ class AlertRecorder:
             if ulaw:
                 self._buffer.write(ulaw)
         except Exception as e:
-            self.log.debug(f"Recorder write error: {e}")
+            self.log.debug("Recorder write error: %s", e)
 
     def stop(self):
-        """
-        Finalize and save the recording.
-        Returns path stem (no extension) for rpt localplay, or None.
-        """
         if not self._active:
             return None
         self._active = False
-
         audio = self._buffer.getvalue()
         self._buffer = BytesIO()
-
         if len(audio) < 1000:
             self.log.debug("Recording too short — discarding")
             return None
-
         ts       = datetime.now().strftime('%Y%m%d_%H%M%S')
         event    = self._current_meta.get('event', 'UNK')
-        filename = f"alert_{ts}_{event}.ulaw"
+        filename = "alert_%s_%s.ulaw" % (ts, event)
         filepath = self.directory / filename
-
         try:
             filepath.write_bytes(audio)
-            self.log.info(
-                f"Alert recorded: {filename}  "
-                f"({len(audio):,} bytes ulaw)"
-            )
+            self.log.info("Alert recorded: %s  (%d bytes ulaw)",
+                          filename, len(audio))
         except Exception as e:
-            self.log.error(f"Failed to save recording: {e}")
+            self.log.error("Failed to save recording: %s", e)
             return None
-
         self._current_meta.update({
             'stopped':  datetime.now().isoformat(),
             'filename': filename,
             'bytes':    len(audio)
         })
-
         try:
             self._update_index(self._current_meta)
             self._update_playback_symlinks()
         except Exception as e:
-            self.log.error(f"Failed to update recording index: {e}")
-
+            self.log.error("Failed to update recording index: %s", e)
         return str(filepath.with_suffix(''))
 
     def discard(self):
-        """Abandon current recording without saving (e.g. on restart)."""
         self._active = False
         self._buffer = BytesIO()
 
-    # ── Disk space ─────────────────────────────────────────────────────────
-
-    def _check_disk_space(self) -> bool:
-        """Return True if at least MIN_FREE_MB MB is free."""
+    def _check_disk_space(self):
         try:
-            stat     = os.statvfs(str(self.directory))
-            free_mb  = stat.f_frsize * stat.f_bavail / (1024 * 1024)
+            stat    = os.statvfs(str(self.directory))
+            free_mb = stat.f_frsize * stat.f_bavail / (1024 * 1024)
             if free_mb < MIN_FREE_MB:
                 self.log.warning(
-                    f"Low disk space: {free_mb:.1f}MB free in "
-                    f"{self.directory} (minimum {MIN_FREE_MB}MB)"
+                    "Low disk space: %.1fMB free (minimum %dMB)",
+                    free_mb, MIN_FREE_MB
                 )
                 return False
             return True
         except Exception:
-            return True   # Can't check — allow recording
+            return True
 
-    # ── Index management ───────────────────────────────────────────────────
-
-    def _load_index(self) -> list:
+    def _load_index(self):
         index_path = self.directory / 'index.json'
         if index_path.exists():
             try:
@@ -202,36 +154,30 @@ class AlertRecorder:
                 return []
         return []
 
-    def _update_index(self, meta: dict):
+    def _update_index(self, meta):
         recordings = self._load_index()
         recordings.append(meta)
-
         while len(recordings) > self.max_recordings:
             old      = recordings.pop(0)
             old_path = self.directory / old.get('filename', '')
             try:
-                old_path.unlink(missing_ok=True)
-                self.log.debug(f"Rotated out: {old_path.name}")
+                old_path.unlink()
+                self.log.debug("Rotated out: %s", old_path.name)
             except Exception:
                 pass
-
         try:
             (self.directory / 'index.json').write_text(
                 json.dumps(recordings, indent=2)
             )
         except Exception as e:
-            self.log.error(f"Failed to update index: {e}")
+            self.log.error("Failed to update index: %s", e)
 
     def _update_playback_symlinks(self):
-        """
-        Maintain recent_N.ulaw symlinks for DTMF playback.
-        recent_1.ulaw = most recent alert.
-        """
         recordings = self._load_index()
         for i in range(1, self.max_recordings + 1):
-            link = self.directory / f"recent_{i}.ulaw"
+            link = self.directory / ("recent_%d.ulaw" % i)
             try:
-                link.unlink(missing_ok=True)
+                link.unlink()
             except Exception:
                 pass
             idx = len(recordings) - i
@@ -241,12 +187,9 @@ class AlertRecorder:
                     try:
                         link.symlink_to(target)
                     except Exception as e:
-                        self.log.debug(f"Symlink {link.name}: {e}")
+                        self.log.debug("Symlink recent_%d: %s", i, e)
 
-    # ── Audio conversion ───────────────────────────────────────────────────
-
-    def _pcm_to_ulaw(self, pcm_22050: bytes) -> bytes:
-        """Convert 22050Hz signed 16-bit PCM to 8kHz ulaw."""
+    def _pcm_to_ulaw(self, pcm_22050):
         if HAS_AUDIOOP:
             try:
                 pcm_8k, self._resample_state = audioop.ratecv(
@@ -256,13 +199,13 @@ class AlertRecorder:
                 )
                 return audioop.lin2ulaw(pcm_8k, 2)
             except Exception as e:
-                self.log.debug(f"audioop error: {e}")
+                self.log.debug("audioop error: %s", e)
                 return b''
-
         elif HAS_NUMPY:
             try:
-                arr   = np.frombuffer(pcm_22050, dtype=np.int16).astype(np.float32)
-                ratio = SAMPLE_RATE_OUT / SAMPLE_RATE_IN
+                arr   = np.frombuffer(pcm_22050,
+                                      dtype=np.int16).astype(np.float32)
+                ratio = float(SAMPLE_RATE_OUT) / SAMPLE_RATE_IN
                 n_out = max(1, int(len(arr) * ratio))
                 resampled = np.interp(
                     np.linspace(0, len(arr) - 1, n_out),
@@ -271,17 +214,15 @@ class AlertRecorder:
                 ).astype(np.int16)
                 return self._numpy_lin2ulaw(resampled)
             except Exception as e:
-                self.log.debug(f"numpy conversion error: {e}")
+                self.log.debug("numpy conversion error: %s", e)
                 return b''
-
-        return b''   # CONVERSION_AVAILABLE is False — start() already blocked us
+        return b''
 
     @staticmethod
-    def _numpy_lin2ulaw(samples) -> bytes:
-        """ITU-T G.711 ulaw encoding via numpy."""
+    def _numpy_lin2ulaw(samples):
         import numpy as np
-        BIAS  = 0x84
-        CLIP  = 32635
+        BIAS = 0x84
+        CLIP = 32635
         exp_lut = [0,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,
                    4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
                    5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,
@@ -300,10 +241,9 @@ class AlertRecorder:
         exponent = exp_arr[(s_biased >> 7) & 0xFF]
         mantissa = ((s_biased >> (exponent.astype(np.int32) + 3)) & 0x0F
                     ).astype(np.uint8)
-        return np.bitwise_not(sign | (exponent << 4) | mantissa
-                              ).astype(np.uint8).tobytes()
-
-    # ── Playback info ──────────────────────────────────────────────────────
+        return np.bitwise_not(
+            sign | (exponent << 4) | mantissa
+        ).astype(np.uint8).tobytes()
 
     def get_recent_path(self, n=1):
         recordings = self._load_index()
@@ -315,5 +255,5 @@ class AlertRecorder:
         path = self.directory / recordings[idx].get('filename', '')
         return str(path.with_suffix('')) if path.exists() else None
 
-    def get_summary(self) -> list:
+    def get_summary(self):
         return self._load_index()

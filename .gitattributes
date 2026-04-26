@@ -1,0 +1,15 @@
+# Force shell scripts and Python to LF on all platforms
+*.sh    text eol=lf
+*.py    text eol=lf
+*.service text eol=lf
+
+# Windows-safe text files — allow native line endings
+*.md    text
+*.txt   text
+*.conf  text
+*.json  text
+
+# Binaries — no line ending conversion
+*.ulaw  binary
+*.wav   binary
+*.raw   binary

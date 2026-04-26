@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
 """
-eas_monitor.py - EAS/SAME AllStarLink Monitor — Main Entry Point
-=================================================================
-Hardening:
-  - SIGTERM/SIGHUP handler releases PTT and disconnects all nodes before exit
-  - PTT key_down() at startup in case a previous crash left it keyed
-  - Audio conversion dependency check at startup — hard fail with clear
-    message rather than silently producing corrupt ulaw recordings
-  - chan_usrp.so presence check for sources that need it
-  - RTL-SDR DVB kernel driver conflict detection
-  - All restart-loop iterations catch exceptions independently so one
-    bad restart cycle never kills the service permanently
+eas_monitor.py - EAS/SAME AllStarLink Monitor
+Python 3.5 compatible.
 """
 
 import argparse
@@ -34,12 +25,10 @@ from sources       import get_source
 
 DEFAULT_CONFIG = '/etc/eas_monitor/fips_nodes.conf'
 DEFAULT_LOG    = '/var/log/eas_monitor.log'
-RESTART_DELAY  = 15   # seconds between pipeline restarts
+RESTART_DELAY  = 15
 
 
-# ── Logging ────────────────────────────────────────────────────────────────
-
-def setup_logging(log_file: str, verbose: bool = False) -> logging.Logger:
+def setup_logging(log_file, verbose=False):
     level   = logging.DEBUG if verbose else logging.INFO
     fmt     = '%(asctime)s  %(levelname)-8s  %(name)s  %(message)s'
     datefmt = '%Y-%m-%d %H:%M:%S'
@@ -56,25 +45,20 @@ def setup_logging(log_file: str, verbose: bool = False) -> logging.Logger:
     return logging.getLogger('eas_monitor')
 
 
-# ── Config ─────────────────────────────────────────────────────────────────
-
-def load_config(path: str) -> configparser.ConfigParser:
+def load_config(path):
     if not os.path.exists(path):
-        print(f"[ERROR] Config not found: {path}")
-        print(f"        Run: sudo python3 setup_wizard.py")
+        print("[ERROR] Config not found: %s" % path)
+        print("        Run: sudo python3 setup_wizard.py")
         sys.exit(1)
     config = configparser.ConfigParser()
     config.read(path)
     if 'settings' not in config:
-        print(f"[ERROR] Config missing [settings] section: {path}")
+        print("[ERROR] Config missing [settings] section: %s" % path)
         sys.exit(1)
     return config
 
 
-# ── USRP sinks ─────────────────────────────────────────────────────────────
-
-def build_usrp_sinks(config: configparser.ConfigParser,
-                     log: logging.Logger) -> dict:
+def build_usrp_sinks(config, log):
     source_type = config.get('settings', 'audio_source', fallback='').lower()
     if source_type == 'usb_shared':
         return {}
@@ -86,129 +70,84 @@ def build_usrp_sinks(config: configparser.ConfigParser,
         try:
             tx, rx = (int(p.strip()) for p in value.split(':'))
             sinks[key] = USRPSink(tx_port=tx, rx_port=rx, log=log)
-            log.debug(f"USRP sink: {key}  TX:{tx}  RX:{rx}")
+            log.debug("USRP sink: %s  TX:%d  RX:%d", key, tx, rx)
         except Exception as e:
-            log.error(f"Invalid [usrp_nodes] entry '{key} = {value}': {e}")
+            log.error("Invalid [usrp_nodes] entry '%s = %s': %s",
+                      key, value, e)
     return sinks
 
 
-# ── Startup checks ─────────────────────────────────────────────────────────
-
-def check_dependencies(source_type: str, ami: AsteriskAMI,
-                       log: logging.Logger) -> bool:
-    """
-    Run pre-flight checks. Returns False if a fatal problem is found.
-    Logs warnings for non-fatal issues.
-    """
-    ok = True
-
-    # Audio conversion library
+def check_dependencies(source_type, ami, log):
     if not CONVERSION_AVAILABLE:
         log.error(
-            "FATAL: Audio recording disabled — neither audioop nor numpy "
-            "is available. Install numpy: "
-            "pip install numpy --break-system-packages\n"
-            "Recording will not work. Set recording.enabled = false to "
-            "suppress this warning."
+            "Audio recording disabled — neither audioop nor numpy available. "
+            "Install numpy: pip install numpy --break-system-packages"
         )
-        # Not fatal for monitoring itself, just recording
-        # ok = False  # uncomment to make it fatal
-
     else:
-        log.info(f"Audio conversion: {CONVERSION_METHOD}")
+        log.info("Audio conversion: %s", CONVERSION_METHOD)
 
-    # chan_usrp required for non-USB-shared sources
     if source_type not in ('usb_shared', 'stream'):
         if not ami.is_module_loaded('chan_usrp'):
             log.error(
                 "chan_usrp.so is not loaded in Asterisk. "
                 "Add 'load => chan_usrp.so' to /etc/asterisk/modules.conf "
-                "and reload Asterisk. "
-                "Alert audio will not reach connected nodes."
+                "and reload Asterisk."
             )
-            # Not fatal — monitoring still works, just no audio injection
         else:
             log.info("chan_usrp.so: loaded OK")
 
-    # RTL-SDR DVB driver conflict
     if source_type == 'rtlsdr':
         _check_dvb_conflict(log)
 
-    return ok
 
-
-def _check_dvb_conflict(log: logging.Logger):
-    """
-    The kernel module dvb_usb_rtl28xxu auto-claims RTL-SDR devices on some
-    systems, preventing rtl_fm from opening them (usb_claim_interface error -6).
-    Check for the module and warn if it's loaded.
-    """
+def _check_dvb_conflict(log):
     try:
         with open('/proc/modules', 'r') as f:
             modules = f.read()
         if 'dvb_usb_rtl28xxu' in modules or 'rtl2832' in modules:
             log.warning(
-                "DVB kernel driver is loaded and may conflict with rtl_fm. "
-                "If rtl_fm fails to open the device, run:\n"
-                "  sudo modprobe -r dvb_usb_rtl28xxu rtl2832\n"
-                "To permanently blacklist it, the installer creates:\n"
-                "  /etc/modprobe.d/rtlsdr-blacklist.conf"
+                "DVB kernel driver loaded — may conflict with rtl_fm. "
+                "If rtl_fm fails: sudo modprobe -r dvb_usb_rtl28xxu rtl2832"
             )
     except Exception:
         pass
 
 
-# ── Signal handling ────────────────────────────────────────────────────────
-
-class _ShutdownState:
-    """
-    Holds references to components that need cleanup on shutdown.
-    Populated after all components are built so the signal handler
-    can safely reference them.
-    """
+class _ShutdownState(object):
     link_mgr   = None
     usrp_sinks = []
     recorder   = None
     pipeline   = None
     log        = None
 
+
 _shutdown = _ShutdownState()
 
 
 def _handle_signal(signum, frame):
-    """
-    SIGTERM / SIGHUP handler.
-    Releases PTT, disconnects all nodes, then exits cleanly.
-    systemd waits up to TimeoutStopSec before sending SIGKILL.
-    """
-    sig_name = {signal.SIGTERM: 'SIGTERM', signal.SIGHUP: 'SIGHUP'}.get(
-        signum, str(signum)
-    )
+    sig_names = {signal.SIGTERM: 'SIGTERM', signal.SIGHUP: 'SIGHUP'}
+    sig_name  = sig_names.get(signum, str(signum))
     if _shutdown.log:
-        _shutdown.log.info(f"Received {sig_name} — shutting down cleanly")
+        _shutdown.log.info("Received %s — shutting down cleanly", sig_name)
 
-    # Release PTT first — most important, prevents stuck keyed node
     for sink in _shutdown.usrp_sinks:
         try:
             sink.key_down()
         except Exception:
             pass
 
-    # Disconnect all linked nodes
     if _shutdown.link_mgr:
         try:
             _shutdown.link_mgr.disconnect_all()
         except Exception:
             pass
 
-    # Stop any in-progress recording
     if _shutdown.recorder and _shutdown.recorder.is_active:
         try:
             _shutdown.recorder.discard()
         except Exception:
             pass
 
-    # Terminate pipeline processes
     if _shutdown.pipeline:
         try:
             _shutdown.pipeline.terminate()
@@ -218,13 +157,29 @@ def _handle_signal(signum, frame):
     sys.exit(0)
 
 
-# ── Main ───────────────────────────────────────────────────────────────────
+def _cleanup_after_failure(link_mgr, primary_usrp, recorder, log):
+    try:
+        link_mgr.disconnect_all()
+    except Exception as e:
+        log.debug("disconnect_all on restart: %s", e)
+    if primary_usrp:
+        try:
+            primary_usrp.key_down()
+        except Exception as e:
+            log.debug("key_down on restart: %s", e)
+    if recorder and recorder.is_active:
+        try:
+            recorder.discard()
+        except Exception as e:
+            log.debug("recorder discard on restart: %s", e)
+
 
 def main():
-    parser = argparse.ArgumentParser(description='EAS/SAME AllStarLink Monitor')
+    parser = argparse.ArgumentParser(
+        description='EAS/SAME AllStarLink Monitor'
+    )
     parser.add_argument('--config',  default=DEFAULT_CONFIG)
-    parser.add_argument('--dry-run', action='store_true',
-                        help='Log actions without connecting nodes')
+    parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--verbose', '-v', action='store_true')
     args = parser.parse_args()
 
@@ -240,20 +195,17 @@ def main():
 
     log.info("=" * 60)
     log.info("EAS/SAME AllStarLink Monitor starting")
-    log.info(f"  Config       : {args.config}")
-    log.info(f"  Audio source : {source_type}")
-    log.info(f"  Local node   : {local_node}")
-    log.info(f"  Public node  : {public_node}")
-    log.info(f"  Dry run      : {dry_run}")
+    log.info("  Config       : %s", args.config)
+    log.info("  Audio source : %s", source_type)
+    log.info("  Local node   : %s", local_node)
+    log.info("  Public node  : %s", public_node)
+    log.info("  Dry run      : %s", dry_run)
     log.info("=" * 60)
 
     _shutdown.log = log
 
-    # Register signal handlers before building components
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGHUP,  _handle_signal)
-
-    # ── Build components ──────────────────────────────────────────────────
 
     ami = AsteriskAMI(
         host    = config.get('ami', 'host',   fallback='127.0.0.1'),
@@ -267,30 +219,26 @@ def main():
     if not ami.test_connection() and not dry_run:
         log.error(
             "Cannot connect to Asterisk AMI. "
-            "Verify Asterisk is running and manager.conf has the "
-            "[eas_monitor] user with correct credentials."
+            "Verify Asterisk is running and manager.conf has "
+            "the [eas_monitor] user with correct credentials."
         )
         sys.exit(1)
 
     log.info("AMI connection OK")
 
-    # Run pre-flight checks (warnings only — nothing here kills startup)
     check_dependencies(source_type, ami, log)
 
     usrp_sinks   = build_usrp_sinks(config, log)
     primary_usrp = next(iter(usrp_sinks.values())) if usrp_sinks else None
 
-    # Register USRP sinks for signal handler cleanup
     _shutdown.usrp_sinks = list(usrp_sinks.values())
 
-    # SAFETY: release PTT now in case a previous crash left it keyed.
-    # This runs before any alert processing begins.
     if primary_usrp:
         try:
             primary_usrp.key_down()
             log.info("PTT released (startup safety check)")
         except Exception as e:
-            log.warning(f"Could not release PTT at startup: {e}")
+            log.warning("Could not release PTT at startup: %s", e)
 
     recorder = None
     if config.getboolean('recording', 'enabled', fallback=True):
@@ -307,8 +255,7 @@ def main():
         else:
             log.warning(
                 "Recording enabled in config but no conversion library "
-                "available — recording will be silently skipped. "
-                "Install numpy to enable recording."
+                "available — recording will be skipped."
             )
     _shutdown.recorder = recorder
 
@@ -329,15 +276,12 @@ def main():
         log       = log
     )
 
-    # ── Pipeline restart loop ─────────────────────────────────────────────
-
     source = get_source(config)
-    log.info(f"Source: {source.describe()}")
+    log.info("Source: %s", source.describe())
 
-    consecutive_fast_failures = 0
+    consecutive_fast = 0
 
     while True:
-        audio_proc = None
         pipeline   = None
         start_time = time.time()
 
@@ -351,7 +295,6 @@ def main():
                 _shutdown.pipeline = pipeline
                 log.info("Wideband pipeline running")
                 pipeline.run(handler)
-
             else:
                 audio_proc = source.get_process()
                 pipeline   = SimplePipeline(
@@ -365,66 +308,40 @@ def main():
                 pipeline.run(handler)
 
             log.warning("Pipeline exited cleanly — restarting")
-            consecutive_fast_failures = 0
+            consecutive_fast = 0
 
         except KeyboardInterrupt:
             log.info("Keyboard interrupt — shutting down")
             _handle_signal(signal.SIGTERM, None)
 
         except RuntimeError as e:
-            # Configuration-level errors (missing binary, bad config)
-            log.error(f"Configuration error: {e}")
-            log.error("Waiting 60s before retry (fix the problem above)")
+            log.error("Configuration error: %s", e)
+            log.error("Waiting 60s before retry")
             _cleanup_after_failure(link_mgr, primary_usrp, recorder, log)
             time.sleep(60)
             continue
 
         except Exception as e:
-            log.error(f"Pipeline error: {e}")
+            log.error("Pipeline error: %s", e)
 
-        # Detect tight restart loops (source fails immediately every time)
         run_duration = time.time() - start_time
         if run_duration < 5:
-            consecutive_fast_failures += 1
-            if consecutive_fast_failures >= 3:
+            consecutive_fast += 1
+            if consecutive_fast >= 3:
                 log.error(
-                    f"Pipeline has failed {consecutive_fast_failures} times "
-                    f"in rapid succession — backing off 60s. "
-                    f"Check hardware and logs."
+                    "Pipeline failed %d times rapidly — backing off 60s",
+                    consecutive_fast
                 )
                 _cleanup_after_failure(link_mgr, primary_usrp, recorder, log)
                 time.sleep(60)
-                consecutive_fast_failures = 0
+                consecutive_fast = 0
                 continue
         else:
-            consecutive_fast_failures = 0
+            consecutive_fast = 0
 
         _cleanup_after_failure(link_mgr, primary_usrp, recorder, log)
-        log.info(f"Restarting pipeline in {RESTART_DELAY}s")
+        log.info("Restarting pipeline in %ds", RESTART_DELAY)
         time.sleep(RESTART_DELAY)
-
-
-def _cleanup_after_failure(link_mgr, primary_usrp, recorder, log):
-    """
-    Best-effort cleanup after any pipeline failure.
-    Runs before every restart. Must not raise.
-    """
-    try:
-        link_mgr.disconnect_all()
-    except Exception as e:
-        log.debug(f"disconnect_all on restart: {e}")
-
-    if primary_usrp:
-        try:
-            primary_usrp.key_down()
-        except Exception as e:
-            log.debug(f"key_down on restart: {e}")
-
-    if recorder and recorder.is_active:
-        try:
-            recorder.discard()
-        except Exception as e:
-            log.debug(f"recorder discard on restart: {e}")
 
 
 if __name__ == '__main__':
