@@ -148,6 +148,137 @@ ALL_EVENTS.update(NATIONAL_EVENTS)
 ALL_EVENTS.update(TEST_EVENTS)
 
 
+
+SCREEN_WIDTH = 76
+
+
+class WTail(object):
+
+    BACKTITLE = "EAS/SAME AllStarLink Monitor -- Setup Wizard"
+
+    @staticmethod
+    def _run(args):
+        full = ["whiptail", "--backtitle", WTail.BACKTITLE] + args
+        try:
+            tty_in  = open("/dev/tty", "r")
+            tty_out = open("/dev/tty", "w")
+            result = subprocess.run(
+                full, stdin=tty_in, stdout=tty_out,
+                stderr=subprocess.PIPE, universal_newlines=True
+            )
+            tty_in.close()
+            tty_out.close()
+            return result.returncode, result.stderr.strip()
+        except FileNotFoundError:
+            print("ERROR: whiptail not found.")
+            sys.exit(1)
+
+    @staticmethod
+    def msgbox(text, title="", height=10):
+        WTail._run(["--title", title, "--msgbox", text,
+                    str(height), str(SCREEN_WIDTH)])
+
+    @staticmethod
+    def infobox(text, height=5):
+        WTail._run(["--infobox", text, str(height), str(SCREEN_WIDTH)])
+
+    @staticmethod
+    def yesno(text, title="", yes_btn="Yes", no_btn="No",
+              height=10, default_yes=True):
+        args = ["--title", title, "--yes-button", yes_btn,
+                "--no-button", no_btn]
+        if not default_yes:
+            args.append("--defaultno")
+        args += ["--yesno", text, str(height), str(SCREEN_WIDTH)]
+        rc, _ = WTail._run(args)
+        return rc == 0
+
+    @staticmethod
+    def inputbox(text, default="", title="", height=8):
+        args = ["--title", title, "--inputbox", text,
+                str(height), str(SCREEN_WIDTH), default]
+        rc, out = WTail._run(args)
+        return out if rc == 0 else None
+
+    @staticmethod
+    def passwordbox(text, title=""):
+        args = ["--title", title, "--passwordbox", text,
+                "8", str(SCREEN_WIDTH), ""]
+        rc, out = WTail._run(args)
+        return out if rc == 0 else None
+
+    @staticmethod
+    def menu(text, items, title="", height=20):
+        args = ["--title", title, "--menu", text,
+                str(height), str(SCREEN_WIDTH), str(len(items))]
+        for tag, desc in items:
+            args += [str(tag), str(desc)]
+        rc, out = WTail._run(args)
+        return out if rc == 0 else None
+
+    @staticmethod
+    def radiolist(text, items, title="", height=20):
+        args = ["--title", title, "--radiolist", text,
+                str(height), str(SCREEN_WIDTH), str(len(items))]
+        for tag, desc, sel in items:
+            args += [str(tag), str(desc), "ON" if sel else "OFF"]
+        rc, out = WTail._run(args)
+        return out if rc == 0 else None
+
+    @staticmethod
+    def checklist(text, items, title="", height=20):
+        args = ["--title", title, "--checklist", text,
+                str(height), str(SCREEN_WIDTH), str(len(items))]
+        for tag, desc, sel in items:
+            args += [str(tag), str(desc), "ON" if sel else "OFF"]
+        rc, out = WTail._run(args)
+        if rc != 0:
+            return []
+        import shlex
+        try:
+            return shlex.split(out)
+        except Exception:
+            return [t.strip("\" ") for t in out.split()]
+
+    @staticmethod
+    def gauge(text, items, title=""):
+        total = len(items)
+        args  = ["whiptail", "--backtitle", WTail.BACKTITLE,
+                 "--title", title, "--gauge", text,
+                 "7", str(SCREEN_WIDTH), "0"]
+        try:
+            tty_out = open("/dev/tty", "w")
+            proc = subprocess.Popen(
+                args, stdin=subprocess.PIPE, stdout=tty_out,
+                stderr=tty_out, universal_newlines=True
+            )
+            for i, (desc, fn) in enumerate(items):
+                pct = int((i / total) * 100)
+                try:
+                    proc.stdin.write("XXX\n{}\n{}\nXXX\n".format(pct, desc))
+                    proc.stdin.flush()
+                except Exception:
+                    pass
+                try:
+                    fn()
+                except Exception:
+                    pass
+            try:
+                proc.stdin.write("XXX\n100\nDone\nXXX\n")
+                proc.stdin.flush()
+                proc.stdin.close()
+            except Exception:
+                pass
+            proc.wait()
+            tty_out.close()
+        except Exception:
+            for _, fn in items:
+                try:
+                    fn()
+                except Exception:
+                    pass
+
+
 def detect_distro():
     try:
         content = Path('/etc/os-release').read_text()
