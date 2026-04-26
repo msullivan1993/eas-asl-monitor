@@ -104,7 +104,7 @@ class WTail:
         try:
             result = subprocess.run(
                 full,
-                capture_output=True, text=True
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
             )
             return result.returncode, result.stderr.strip()
         except FileNotFoundError:
@@ -220,7 +220,7 @@ class WTail:
         proc  = subprocess.Popen(
             ['whiptail', '--backtitle', WTail.BACKTITLE,
              '--gauge', text, '8', str(SCREEN_WIDTH), '0'],
-            stdin=subprocess.PIPE, text=True
+            stdin=subprocess.PIPE, universal_newlines=True
         )
         for i, (desc, fn) in enumerate(steps):
             pct = int(i / total * 100)
@@ -260,7 +260,7 @@ def detect_alsa_capture_devices():
     """Returns list of (hw_string, name) tuples."""
     try:
         out = subprocess.run(['arecord', '-l'],
-                             capture_output=True, text=True)
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
         devices = []
         for line in out.stdout.splitlines():
             m = re.match(r'card (\d+): .+\[(.+?)\].*device (\d+):', line)
@@ -277,7 +277,7 @@ def detect_rtlsdr_devices():
     """Returns list of (index, name) tuples."""
     try:
         out = subprocess.run(['rtl_test', '-t'],
-                             capture_output=True, text=True, timeout=4)
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=4)
         devices = []
         for line in (out.stdout + out.stderr).splitlines():
             m = re.match(r'\s*(\d+):\s+(.+)', line)
@@ -314,7 +314,7 @@ def check_dsnoop(device_hw):
             ['arecord', '-D', 'dsnoop:{}'.format(device_hw.replace("hw:","")),
              '-r', '22050', '-f', 'S16_LE', '-c', '1',
              '-d', '1', '-t', 'raw', '/dev/null'],
-            capture_output=True, timeout=5
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
         )
         return proc.returncode == 0
     except Exception:
@@ -342,7 +342,7 @@ def read_rtlsdr_eeprom(device_index):
     try:
         out = subprocess.run(
             ['rtl_eeprom', '-d', str(device_index)],
-            capture_output=True, text=True, timeout=6
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=6
         )
         text = out.stdout + out.stderr
         for line in text.splitlines():
@@ -384,7 +384,7 @@ def write_rtlsdr_serial(device_index, new_serial):
         proc = subprocess.run(
             ['rtl_eeprom', '-d', str(device_index), '-s', new_serial],
             input='y\n',
-            capture_output=True, text=True, timeout=10
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=10
         )
         # Success if return code 0 and no error about write failure
         return proc.returncode == 0 and 'failed' not in proc.stdout.lower()
@@ -404,7 +404,7 @@ def wait_for_rtlsdr_serial(expected_serial,
         try:
             out = subprocess.run(
                 ['rtl_eeprom', '-d', expected_serial],
-                capture_output=True, text=True, timeout=4
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=4
             )
             if expected_serial in (out.stdout + out.stderr):
                 return True
@@ -431,7 +431,7 @@ def get_alsa_udev_attrs(hw_string):
         out = subprocess.run(
             ['udevadm', 'info', '-a',
              '/sys/class/sound/card{}'.format(card_num)],
-            capture_output=True, text=True, timeout=5
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=5
         )
         text = out.stdout
         # udevadm -a walks up the device tree; we want the first USB parent
@@ -513,9 +513,9 @@ def write_udev_rules(rules):
     try:
         Path(UDEV_RULES_FILE).write_text(content)
         subprocess.run(['udevadm', 'control', '--reload'],
-                       capture_output=True, timeout=5)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
         subprocess.run(['udevadm', 'trigger'],
-                       capture_output=True, timeout=5)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
         return True
     except Exception:
         return False
@@ -733,7 +733,7 @@ def setup_snd_aloop():
     """Enable snd-aloop kernel module (for usb_shared fallback if dsnoop fails)."""
     try:
         subprocess.run(['modprobe', 'snd-aloop'], check=True,
-                       capture_output=True)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # Persist
         dist = detect_distro()
         if dist == 'arch':
@@ -864,7 +864,7 @@ def reload_asterisk():
     """Reload Asterisk configuration."""
     try:
         subprocess.run(['asterisk', '-rx', 'reload'],
-                       capture_output=True, timeout=15)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
         return True
     except Exception:
         return False
@@ -878,9 +878,9 @@ def install_service(install_dir):
     try:
         import shutil
         shutil.copy2(src, SERVICE_FILE)
-        subprocess.run(['systemctl', 'daemon-reload'], capture_output=True)
+        subprocess.run(['systemctl', 'daemon-reload'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(['systemctl', 'enable', 'eas-monitor'],
-                       capture_output=True)
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return True
     except Exception:
         return False
@@ -1271,7 +1271,7 @@ class EASWizard:
             proc = subprocess.run(
                 ['ffmpeg', '-i', url, '-t', '3', '-f', 'null', '-',
                  '-loglevel', 'error'],
-                capture_output=True, timeout=timeout
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout
             )
             return proc.returncode == 0
         except Exception:
@@ -1993,7 +1993,7 @@ Files to be modified:
         try:
             proc = subprocess.run(
                 "sox {} -t raw -r 22050 -e signed -b 16 -c 1 - | multimon-ng -t raw -a EAS -".format(test_sample),
-                shell=True, capture_output=True, text=True, timeout=15
+                shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=15
             )
             output = proc.stdout + proc.stderr
             if 'ZCZC' in output:

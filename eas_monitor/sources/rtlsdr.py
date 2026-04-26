@@ -91,7 +91,7 @@ class RTLSDRSource(object):
         try:
             out = subprocess.run(
                 ['rtl_test', '-d', self.device_arg, '-t'],
-                capture_output=True, text=True, timeout=5
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=5
             )
             combined = out.stdout + out.stderr
             if 'usb_claim_interface error -6' in combined:
