@@ -558,14 +558,18 @@ def zip_to_fips_api(zipcode):
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
         counties = data.get('result', {}).get('geographies', {}).get('Counties', [])
-        return [
-            {
-                'fips':   c['STATE'] + c['COUNTY'],
+        results = []
+        for c in counties:
+            # SAME FIPS = 6 digits: SSS (state, 3-digit padded) + CCC (county, 3-digit)
+            # Census STATE field is 2 digits (e.g. "21"), needs padding to "021"
+            state_padded = c['STATE'].zfill(3)
+            fips_6 = state_padded + c['COUNTY']
+            results.append({
+                'fips':   fips_6,
                 'county': c['NAME'],
                 'state':  c['STATE']
-            }
-            for c in counties
-        ]
+            })
+        return results
     except Exception:
         return []
 
@@ -580,13 +584,17 @@ def zip_to_fips_local(zipcode):
             reader = csv.reader(f, delimiter='|')
             for row in reader:
                 if len(row) >= 2 and row[0].strip() == zipcode:
-                    state_fips  = row[1].strip()[:2]
-                    county_fips = row[1].strip()
-                    county_name = row[2].strip() if len(row) > 2 else county_fips
+                    # Census GEOID is 5 digits (2-digit state + 3-digit county)
+                    # SAME FIPS needs 6 digits (3-digit state padded + 3-digit county)
+                    geoid     = row[1].strip()   # e.g. "21019"
+                    state_2   = geoid[:2]         # "21"
+                    county_3  = geoid[2:]         # "019"
+                    fips_6    = state_2.zfill(3) + county_3  # "021019"
+                    county_name = row[2].strip() if len(row) > 2 else fips_6
                     results.append({
-                        'fips':   county_fips,
+                        'fips':   fips_6,
                         'county': county_name,
-                        'state':  state_fips
+                        'state':  state_2
                     })
         return results
     except Exception:
@@ -1089,7 +1097,7 @@ class EASWizard:
             self.cfg['dsnoop_ok'] = True
         else:
             WTail.msgbox(
-                "dsnoop could not open {}.\n\nThis is usually because the device driver doesn't support\nshared capture. The installer will set up an ALSA loopback\nas an alternative. Your Asterisk config will need a small\nupdate -- the installer will guide you.".format(choice),
+                "dsnoop not supported on {} -- this is normal for most USB audio dongles.\n\nThe installer will use the snd-aloop kernel module as a\nloopback bridge instead. This is a fully supported path\nand works reliably on HamVoIP.\n\nNo manual Asterisk config changes are needed.".format(choice),
                 title="dsnoop Not Available"
             )
             self.cfg['dsnoop_ok'] = False
@@ -1346,10 +1354,10 @@ class EASWizard:
             )
 
         if not WTail.yesno(
-            "Create a stable udev rule for your {}?\n\n  Device:  {}\n  Matches: {}\n  Quality: {}\n\nThis makes the device path permanent regardless of USB port.\nThe config will use 'hw:CARD=wx_radio' instead of 'hw:X,Y'.".format(label, hw, match_desc, quality),
+            "Create a stable udev rule for your {}?\n\n  Device:  {}\n  Matches: {}\n  Quality: {}\n\nA udev rule pins this device to a stable name so the EAS\nmonitor always finds it regardless of which USB port it is\nplugged into.\n\nSKIP if: you have only one USB audio device, or this is a\ntest install. You can re-run the wizard later to add the rule.\n\nCREATE RULE if: you have multiple USB devices, or you want\nthe config to survive moving the dongle to a different port.".format(label, hw, match_desc, quality),
             title="Stable Device Identification",
             yes_btn="Create Rule",
-            no_btn="Skip"
+            no_btn="Skip for now"
         ):
             return True
 
@@ -1411,7 +1419,7 @@ class EASWizard:
             [
                 ('write',    'Write a unique serial ({}) to the dongle\'s EEPROM'.format(suggested)),
                 ('custom',   'Write a custom serial string I specify'),
-                ('skip',     'Skip -- use device index (port-dependent)'),
+                ('skip',     'Skip for now -- use device index (OK for single-dongle test installs)'),
             ],
             title="RTL-SDR Serial Number"
         )
@@ -1599,11 +1607,13 @@ class EASWizard:
         if not all_counties:
             WTail.msgbox(
                 "Could not find counties for the ZIP code(s) entered.\n\n"
-                "This may happen if:\n"
-                "  * ZIP code is invalid\n"
-                "  * No internet connection\n"
-                "  * FIPS data file not downloaded yet\n\n"
-                "Try entering FIPS codes manually instead.",
+                "Common causes:\n"
+                "  * ZIP code is invalid (must be 5 digits)\n"
+                "  * Census API unavailable (try again or check internet)\n"
+                "  * FIPS data file missing from /var/lib/eas_monitor/\n\n"
+                "If the FIPS file is missing, exit and run:\n"
+                "  sudo bash /root/eas-asl-monitor/scripts/download_fips.sh\n\n"
+                "Or select 'Enter FIPS codes directly' on the next screen.",
                 title="Lookup Failed"
             )
             return self.screen_fips_setup()
