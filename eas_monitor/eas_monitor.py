@@ -38,9 +38,13 @@ def setup_logging(log_file, verbose=False):
         handlers.append(logging.FileHandler(log_file))
     except PermissionError:
         pass
+    # force=True is Python 3.8+ -- remove existing handlers manually
+    root = logging.getLogger()
+    for h in root.handlers[:]:
+        root.removeHandler(h)
     logging.basicConfig(
         level=level, format=fmt, datefmt=datefmt,
-        handlers=handlers, force=True
+        handlers=handlers
     )
     return logging.getLogger('eas_monitor')
 
