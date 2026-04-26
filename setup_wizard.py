@@ -217,6 +217,19 @@ class WTail(object):
         return out if rc == 0 else None
 
     @staticmethod
+    def menu_with_help(text, items, title="", height=20):
+        """Menu where each item has (tag, label, help_text).
+        help_text appears at the bottom as you navigate -- no need
+        to cram all descriptions into the header.
+        """
+        args = ["--title", title, "--item-help", "--menu", text,
+                str(height), str(SCREEN_WIDTH), str(len(items))]
+        for tag, label, help_text in items:
+            args += [str(tag), str(label), str(help_text)]
+        rc, out = WTail._run(args)
+        return out if rc == 0 else None
+
+    @staticmethod
     def radiolist(text, items, title="", height=20):
         args = ["--title", title, "--radiolist", text,
                 str(height), str(SCREEN_WIDTH), str(len(items))]
@@ -1397,32 +1410,28 @@ class EASWizard:
 
     def screen_source_select(self):
         items = [
-            ('usb_shared',
-             'Existing RIM-Lite or radio interface node (ALSA tap)'),
-            ('usb_direct',
-             'Dedicated weather radio + USB audio dongle'),
-            ('rtlsdr',
-             'RTL-SDR dongle (~$25, software defined radio)'),
-            ('stream',
-             'Internet stream -- Broadcastify or free URL (no hardware)'),
-            ('usrp_node',
-             'USRP node -- receive audio from Asterisk via private ASL node'),
+            ('usrp_node',  'USRP Node         (HamVoIP recommended)',
+             'HamVoIP/chan_simpleusb: tap audio via a private AllStarLink'
+             ' node. No extra hardware. Asterisk keeps full USB control.'),
+            ('usb_direct', 'USB Direct         (dedicated dongle)',
+             'Dedicated weather radio USB dongle -- Asterisk uses a'
+             ' completely separate audio device.'),
+            ('rtlsdr',     'RTL-SDR            (~$25 software radio)',
+             'RTL-SDR software defined radio dongle. Supports scanning'
+             ' multiple NOAA WX frequencies simultaneously.'),
+            ('stream',     'Internet Stream    (no hardware)',
+             'Broadcastify feed or any internet audio URL.'
+             ' No local hardware required.'),
+            ('usb_shared', 'USB Shared         (advanced, non-HamVoIP)',
+             'Share USB dongle with Asterisk via ALSA dsnoop.'
+             ' NOT compatible with HamVoIP/chan_simpleusb.'),
         ]
-        choice = WTail.menu(
-            "Select your audio source:\n\n"
-            "USB Shared:  Asterisk and EAS monitor share one USB dongle\n"
-            "             via ALSA dsnoop. Works if your driver supports\n"
-            "             shared capture (test first).\n\n"
-            "USB Direct:  Dedicated weather radio dongle -- Asterisk uses\n"
-            "             a different audio device entirely.\n\n"
-            "RTL-SDR:     Software defined radio dongle (~$25).\n\n"
-            "Stream:      Broadcastify or internet audio URL.\n\n"
-            "USRP Node:   Asterisk owns the USB device exclusively\n"
-            "             (HamVoIP/chan_simpleusb). Taps audio via a\n"
-            "             private AllStarLink node -- no hardware needed.",
+        choice = WTail.menu_with_help(
+            "Select your audio source.\n"
+            "Use arrow keys to browse -- description shown below.",
             items,
             title="Audio Source Selection",
-            height=22
+            height=16
         )
         if choice is None:
             return None
