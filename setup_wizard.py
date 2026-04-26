@@ -1120,11 +1120,162 @@ class EASWizard:
         self.update_mode  = update_mode
         self._install_dir = str(Path(__file__).parent.parent.resolve())
 
+    def _check_existing_config(self):
+        """
+        Detect existing installation and offer options:
+          - Load existing config as defaults (re-configure)
+          - Revert Asterisk changes from previous install then reconfigure
+          - Continue fresh
+        """
+        if not Path(CONFIG_FILE).exists():
+            return  # Fresh install -- nothing to check
+
+        choice = WTail.menu(
+            "An existing EAS monitor configuration was found.\n"
+            "  {}\n\n"
+            "What would you like to do?".format(CONFIG_FILE),
+            [
+                ('reconfigure', 'Reconfigure -- load existing settings as defaults'),
+                ('revert',      'Revert      -- undo Asterisk changes, then reconfigure'),
+                ('fresh',       'Fresh start -- ignore existing config'),
+            ],
+            title="Existing Configuration Found",
+            height=14
+        )
+        if choice is None or choice == 'fresh':
+            return
+
+        if choice in ('reconfigure', 'revert'):
+            self._load_existing_config()
+            if choice == 'revert':
+                self._revert_asterisk_config()
+
+    def _load_existing_config(self):
+        """Load existing fips_nodes.conf into self.cfg as defaults."""
+        try:
+            config = configparser.ConfigParser()
+            config.read(CONFIG_FILE)
+            s = config['settings'] if 'settings' in config else {}
+
+            self.cfg['local_node']    = s.get('local_node', '')
+            self.cfg['public_node']   = s.get('public_node', '')
+            self.cfg['audio_source']  = s.get('audio_source', '')
+            self.cfg['active_events'] = [
+                e.strip() for e in s.get('active_events', '').split(',')
+                if e.strip()
+            ]
+
+            if 'ami' in config:
+                self.cfg['ami_host'] = config['ami'].get('host', '127.0.0.1')
+                self.cfg['ami_port'] = config['ami'].get('port', '5038')
+                self.cfg['ami_user'] = config['ami'].get('user', 'eas_monitor')
+                self.cfg['ami_pass'] = config['ami'].get('pass', '')
+
+            if 'fips_map' in config:
+                self.cfg['selected_fips'] = dict(config['fips_map'])
+
+            if 'source_usrp_node' in config:
+                self.cfg['usrp_private_node'] = config['source_usrp_node'].get('node', '')
+                self.cfg['usrp_rx_port']      = config['source_usrp_node'].get('rx_port', '34001')
+
+            if 'recording' in config:
+                self.cfg['recording_enabled'] = config['recording'].get('enabled', 'true')
+
+            WTail.msgbox(
+                "Existing configuration loaded as defaults.\n\n"
+                "  Node:    {}\n"
+                "  Source:  {}\n"
+                "  FIPS:    {} county/counties\n\n"
+                "Step through the wizard to review and change any settings.".format(
+                    self.cfg.get('local_node', '?'),
+                    self.cfg.get('audio_source', '?'),
+                    len(self.cfg.get('selected_fips', {}))
+                ),
+                title="Config Loaded",
+                height=13
+            )
+        except Exception as e:
+            WTail.msgbox(
+                "Could not load existing config: {}\n\n"
+                "Continuing with fresh defaults.".format(e),
+                title="Load Failed",
+                height=8
+            )
+
+    def _revert_asterisk_config(self):
+        """Remove EAS monitor additions from Asterisk config files."""
+        MARKER = '; === EAS Monitor'
+        reverted = []
+        errors   = []
+
+        for filepath in ('/etc/asterisk/rpt.conf',
+                         '/etc/asterisk/extensions.conf'):
+            try:
+                with open(filepath, 'r') as f:
+                    lines = f.readlines()
+
+                # Remove blocks starting with the EAS marker
+                new_lines = []
+                skip = False
+                removed = 0
+                for line in lines:
+                    if MARKER in line:
+                        skip  = True
+                        removed += 1
+                        continue
+                    if skip:
+                        # Skip until next section header or blank section
+                        stripped = line.strip()
+                        if stripped.startswith('[') or (
+                                stripped and not stripped.startswith(';')
+                                and not stripped.startswith('rx')
+                                and not stripped.startswith('duplex')
+                                and not stripped.startswith('scheduler')
+                                and not stripped.startswith('exten')):
+                            skip = False
+                            new_lines.append(line)
+                        else:
+                            removed += 1
+                        continue
+                    new_lines.append(line)
+
+                if removed > 0:
+                    with open(filepath, 'w') as f:
+                        f.writelines(new_lines)
+                    reverted.append("{} ({} lines removed)".format(
+                        filepath, removed))
+
+            except Exception as e:
+                errors.append("{}: {}".format(filepath, e))
+
+        # Reload Asterisk if we changed anything
+        if reverted:
+            try:
+                subprocess.call(
+                    ['asterisk', '-rx', 'dialplan reload'],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
+            except Exception:
+                pass
+
+        msg = "Asterisk config revert complete.\n\n"
+        if reverted:
+            msg += "Reverted:\n" + "\n".join("  " + r for r in reverted)
+        else:
+            msg += "No EAS monitor additions found in Asterisk config."
+        if errors:
+            msg += "\n\nErrors:\n" + "\n".join("  " + e for e in errors)
+
+        WTail.msgbox(msg, title="Revert Complete", height=14)
+
     def run(self):
         """Run the complete wizard flow."""
         if os.geteuid() != 0:
             print("This wizard must be run as root: sudo python3 setup_wizard.py")
             sys.exit(1)
+
+        # Check for existing config and offer to load or reconfigure
+        self._check_existing_config()
 
         # Download FIPS data early (non-blocking -- happens in background)
         if not Path(FIPS_DATA_FILE).exists():
