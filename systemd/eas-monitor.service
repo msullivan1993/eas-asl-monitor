@@ -15,14 +15,11 @@ ExecStartPre=/bin/sleep 10
 ExecStart=/usr/bin/python3 /etc/eas_monitor/eas_monitor.py \
           --config /etc/eas_monitor/fips_nodes.conf
 
-# On stop/restart: send SIGTERM, wait up to 15s for clean shutdown
-# (key_down, disconnect_all, recorder discard), then SIGKILL if needed.
-# KillMode=mixed sends SIGTERM to the main process and waits TimeoutStopSec
-# before sending SIGKILL — gives the signal handler time to release PTT.
+# Send SIGTERM on stop, wait 15s for clean shutdown (PTT release,
+# disconnect all nodes, discard recording), then SIGKILL if needed.
 KillMode=mixed
 TimeoutStopSec=15
 KillSignal=SIGTERM
-FinalKillSignal=SIGKILL
 
 Restart=always
 RestartSec=15
@@ -30,9 +27,6 @@ RestartSec=15
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=eas-monitor
-
-MemoryMax=128M
-CPUQuota=50%
 
 [Install]
 WantedBy=multi-user.target
