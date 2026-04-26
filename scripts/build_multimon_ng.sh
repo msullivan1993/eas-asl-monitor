@@ -2,14 +2,18 @@
 # =============================================================================
 #  build_multimon_ng.sh
 #  Builds multimon-ng from source on HamVoIP/Arch Linux.
+#
+#  Pins to tag 1.2.0 — the current HEAD requires GCC 6+ (__uint128_t in ARM
+#  kernel headers) which is newer than HamVoIP's GCC 5.3.0 toolchain.
 # =============================================================================
 set -e
 
 REPO_URL="https://github.com/EliasOenal/multimon-ng.git"
 BUILD_DIR="/tmp/multimon-ng-build"
+PIN_TAG="1.2.0"
 
 echo ""
-echo "  Building multimon-ng from source..."
+echo "  Building multimon-ng ${PIN_TAG} from source..."
 echo ""
 
 echo "  Installing build dependencies..."
@@ -19,32 +23,27 @@ pacman -Sy --noconfirm --needed git cmake make gcc 2>/dev/null || {
 }
 
 echo "  CMake version: $(cmake --version | head -1)"
+echo "  GCC version:   $(gcc --version | head -1)"
 
-# Always clean clone — avoids stale state from previous failed builds
 rm -rf "${BUILD_DIR}"
-echo "  Cloning repository..."
-git clone "${REPO_URL}" "${BUILD_DIR}"
+echo "  Cloning repository (tag ${PIN_TAG})..."
+git clone --branch "${PIN_TAG}" --depth 1 "${REPO_URL}" "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-# Rewrite line 1 of CMakeLists.txt entirely — replaces whatever version
-# declaration is there (including range syntax like 3.15...3.30) with
-# a plain 3.5 minimum that matches what HamVoIP ships.
 echo "  Patching CMakeLists.txt..."
 echo "  Before: $(head -1 CMakeLists.txt)"
-# Use Python to rewrite the line — avoids any sed escaping/in-place issues
 python3 -c "
-import re, sys
+import re
 with open('CMakeLists.txt', 'r') as f:
     content = f.read()
 patched = re.sub(
     r'cmake_minimum_required\s*\([^)]*\)',
     'cmake_minimum_required(VERSION 3.5)',
-    content,
-    count=1
+    content, count=1
 )
 with open('CMakeLists.txt', 'w') as f:
     f.write(patched)
-print('  After: ' + patched.splitlines()[0])
+print('  After:  ' + patched.splitlines()[0])
 "
 
 echo "  Building ($(nproc) cores)..."
