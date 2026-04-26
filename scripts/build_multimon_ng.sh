@@ -3,8 +3,9 @@
 #  build_multimon_ng.sh
 #  Builds multimon-ng from source on HamVoIP/Arch Linux.
 #
-#  Pins to tag 1.2.0 — the current HEAD requires GCC 6+ (__uint128_t in ARM
-#  kernel headers) which is newer than HamVoIP's GCC 5.3.0 toolchain.
+#  Known issue on HamVoIP: GCC 5.3 + newer kernel headers causes a
+#  __uint128_t compile error in asm/sigcontext.h. We work around it by
+#  defining the type as a dummy that satisfies the struct layout.
 # =============================================================================
 set -e
 
@@ -30,8 +31,7 @@ echo "  Cloning repository (tag ${PIN_TAG})..."
 git clone --branch "${PIN_TAG}" --depth 1 "${REPO_URL}" "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
-echo "  Patching CMakeLists.txt..."
-echo "  Before: $(head -1 CMakeLists.txt)"
+echo "  Patching CMakeLists.txt minimum version..."
 python3 -c "
 import re
 with open('CMakeLists.txt', 'r') as f:
@@ -43,21 +43,59 @@ patched = re.sub(
 )
 with open('CMakeLists.txt', 'w') as f:
     f.write(patched)
-print('  After:  ' + patched.splitlines()[0])
+print('  ' + patched.splitlines()[0])
 "
 
-echo "  Building ($(nproc) cores)..."
 mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j"$(nproc)"
+
+echo "  Configuring..."
+# First attempt — plain build
+if cmake .. -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -3; then
+    :
+else
+    echo "  [WARN] cmake configure failed — unexpected"
+    exit 1
+fi
+
+echo "  Building ($(nproc) cores)..."
+# First build attempt
+if make -j"$(nproc)" 2>&1; then
+    echo "  Build succeeded."
+else
+    echo ""
+    echo "  Build failed — likely GCC 5.3 + kernel header __uint128_t mismatch."
+    echo "  Retrying with workaround compiler flag..."
+    echo ""
+
+    # Clean and retry with the workaround:
+    # Define __uint128_t as a 16-byte aligned char array — satisfies the
+    # struct layout in asm/sigcontext.h without requiring actual 128-bit
+    # integer support. multimon-ng never uses this type itself.
+    cd ..
+    rm -rf build && mkdir build && cd build
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_FLAGS="-D'__uint128_t=__attribute__((aligned(16))) unsigned char[16]'" \
+        2>&1 | tail -3
+
+    make -j"$(nproc)" 2>&1 || {
+        echo ""
+        echo "  [ERROR] Both build attempts failed."
+        echo "  Try updating GCC: pacman -Sy gcc"
+        echo "  Then re-run: sudo bash scripts/build_multimon_ng.sh"
+        exit 1
+    }
+    echo "  Build succeeded with workaround."
+fi
 
 echo "  Installing..."
 make install
 
 if command -v multimon-ng &>/dev/null; then
+    echo ""
     echo "  ✓ multimon-ng installed: $(multimon-ng --version 2>&1 | head -1)"
     rm -rf "${BUILD_DIR}"
 else
-    echo "  [ERROR] Installation failed — binary not found after make install"
+    echo "  [ERROR] make install ran but binary not found"
     exit 1
 fi
