@@ -241,6 +241,23 @@ class WTail(object):
             return [t.strip("\" ") for t in out.split()]
 
     @staticmethod
+    def textbox(text, title="", height=20):
+        """Display scrollable text. whiptail --textbox needs a file."""
+        import tempfile, os
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                          delete=False)
+        try:
+            tmp.write(text)
+            tmp.close()
+            WTail._run(["--title", title, "--textbox",
+                        tmp.name, str(height), str(SCREEN_WIDTH)])
+        finally:
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+
+    @staticmethod
     def gauge(text, items, title=""):
         total = len(items)
         args  = ["whiptail", "--backtitle", WTail.BACKTITLE,
