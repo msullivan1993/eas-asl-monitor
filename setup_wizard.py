@@ -219,15 +219,25 @@ class WTail(object):
     @staticmethod
     def menu_with_help(text, items, title="", height=20):
         """Menu where each item has (tag, label, help_text).
-        help_text appears at the bottom as you navigate -- no need
-        to cram all descriptions into the header.
+        help_text appears at the bottom as you navigate.
+        Falls back to a regular menu if --item-help is not supported.
         """
+        # Try --item-help first
         args = ["--title", title, "--item-help", "--menu", text,
                 str(height), str(SCREEN_WIDTH), str(len(items))]
         for tag, label, help_text in items:
             args += [str(tag), str(label), str(help_text)]
         rc, out = WTail._run(args)
-        return out if rc == 0 else None
+        if rc == 0 and out:
+            return out
+        # --item-help not supported -- fall back to plain menu
+        # Append help text to label so it's still visible
+        plain_args = ["--title", title, "--menu", text,
+                      str(height + 4), str(SCREEN_WIDTH), str(len(items))]
+        for tag, label, help_text in items:
+            plain_args += [str(tag), str(label)]
+        rc2, out2 = WTail._run(plain_args)
+        return out2 if rc2 == 0 else None
 
     @staticmethod
     def radiolist(text, items, title="", height=20):
