@@ -575,25 +575,33 @@ def zip_to_fips_api(zipcode):
 
 
 def zip_to_fips_local(zipcode):
-    """Local ZCTA file lookup. Returns list of {fips, county, state} dicts."""
+    """Local ZCTA file lookup. Returns list of {fips, county, state} dicts.
+
+    Census tab20_zcta520_county20_natl.txt column layout (pipe-delimited):
+      Col 0:  OID_ZCTA5_20      (internal OID - ignore)
+      Col 1:  GEOID_ZCTA5_20    (5-digit ZIP/ZCTA code) <-- match here
+      Col 9:  GEOID_COUNTY_20   (5-digit county FIPS: SS+CCC)
+      Col 10: NAMELSAD_COUNTY_20 (county name)
+    """
     if not Path(FIPS_DATA_FILE).exists():
         return []
     try:
         results = []
-        delim = _detect_fips_delimiter()
-        with open(FIPS_DATA_FILE, 'r') as f:
-            reader = csv.reader(f, delimiter=delim)
+        with open(FIPS_DATA_FILE, 'r', errors='replace') as f:
+            reader = csv.reader(f, delimiter='|')
             for row in reader:
-                if not row:
+                if len(row) < 11:
                     continue
-                zcta = row[0].strip()
+                zcta = row[1].strip()   # col 1 = GEOID_ZCTA5_20
                 if zcta == zipcode:
-                    geoid = row[1].strip() if len(row) > 1 else ''
-                    if geoid and len(geoid) >= 5:
-                        state_2 = geoid[:2]
-                        county_3 = geoid[2:5]
-                        fips_6 = state_2.zfill(3) + county_3
-                        county_name = row[2].strip() if len(row) > 2 else fips_6
+                    geoid = row[9].strip()   # col 9 = GEOID_COUNTY_20
+                    county_name = row[10].strip()  # col 10 = NAMELSAD_COUNTY_20
+                    if geoid and len(geoid) == 5:
+                        # Convert 5-digit Census GEOID to 6-digit SAME FIPS
+                        # Census: SSCCC  ->  SAME: SSSCCC (state padded to 3 digits)
+                        state_2  = geoid[:2]
+                        county_3 = geoid[2:]
+                        fips_6   = state_2.zfill(3) + county_3
                         results.append({
                             'fips':   fips_6,
                             'county': county_name,
@@ -646,14 +654,22 @@ def zip_to_fips_local_debug(zipcode):
             info['raw_first'] = repr(first_line[:80])
             return info
 
-        with open(FIPS_DATA_FILE, 'r') as f:
-            reader = csv.reader(f, delimiter=delim)
+        with open(FIPS_DATA_FILE, 'r', errors='replace') as f:
+            reader = csv.reader(f, delimiter='|')
             for i, row in enumerate(reader):
                 if i == 0:
-                    info['header'] = delim.join(row[:3])
-                if row and row[0].strip() == zipcode:
+                    # Show the relevant column names
+                    cols = [row[1] if len(row) > 1 else '?',
+                            row[9] if len(row) > 9 else '?',
+                            row[10] if len(row) > 10 else '?']
+                    info['header'] = '|'.join(cols)
+                if len(row) > 1 and row[1].strip() == zipcode:
                     info['found'] = True
-                    info['sample'] = delim.join(row[:3])
+                    info['sample'] = '|'.join([
+                        row[1] if len(row) > 1 else '?',
+                        row[9] if len(row) > 9 else '?',
+                        row[10] if len(row) > 10 else '?'
+                    ])
                     break
     except Exception as e:
         info['error'] = str(e)
