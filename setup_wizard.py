@@ -816,6 +816,7 @@ def write_config(cfg):
         'audio_source':     cfg['audio_source'],
         'log_file':         LOG_FILE,
         'max_link_duration': '3600',
+        'active_events':    ','.join(sorted(cfg.get('active_events', []))),
         'act_on_warnings':  'true',
         'act_on_watches':   'true' if cfg.get('act_watches') else 'false',
         'act_on_tests':     'true' if cfg.get('act_tests') else 'false',
@@ -1991,53 +1992,126 @@ class EASWizard:
         self.cfg['fips_map'] = node_mapping
         return True
 
+    # ── Alert type presets ──────────────────────────────────────────────────
+    PRESET_BASIC = [
+        # Imminent life-safety warnings only
+        'TOR', 'SVR', 'FFW', 'EWW', 'HUW', 'TRW',
+        'BZW', 'WSW', 'DSW', 'TSW', 'EQW',
+        'LEW', 'CEM', 'LAE', 'CAE', 'CDW', 'SPW', 'NUW',
+        'EAN', 'EAT',
+    ]
+    PRESET_ALL_WARNINGS = list(WARNING_EVENTS.keys())
+    PRESET_ALL = (
+        list(WARNING_EVENTS.keys()) +
+        list(WATCH_EVENTS.keys()) +
+        list(ADVISORY_EVENTS.keys()) +
+        list(NATIONAL_EVENTS.keys())
+    )
+
     def screen_alert_types(self):
-        warn_items = [
-            (code, desc, True) for code, desc in sorted(WARNING_EVENTS.items())
-        ]
-        watch_items = [
-            (code, desc, False) for code, desc in sorted(WATCH_EVENTS.items())
-        ]
-        test_items = [
-            (code, desc, False) for code, desc in sorted(TEST_EVENTS.items())
-        ]
-
-        # Warnings
-        w_sel = WTail.checklist(
-            "Select WARNING event types to act on:\n"
-            "(Imminent threat -- recommended to keep all selected)",
-            warn_items,
-            title="Alert Types -- Warnings"
+        # Step 1: Choose preset or custom
+        choice = WTail.menu(
+            "Which alert types should trigger node connections?\n\n"
+            "Basic:    Life-safety warnings only (recommended)\n"
+            "          Tornadoes, severe thunderstorms, floods,\n"
+            "          hurricanes, blizzards, civil emergencies.\n\n"
+            "Warnings: All warning-level events (no watches/advisories)\n\n"
+            "All:      Every event type including watches and advisories\n\n"
+            "Custom:   Choose by category (advanced)",
+            [
+                ('basic',    'Basic    -- Life-safety warnings (recommended)'),
+                ('warnings', 'Warnings -- All warning-level events'),
+                ('all',      'All      -- Warnings + watches + advisories'),
+                ('custom',   'Custom   -- Choose by category'),
+            ],
+            title="Alert Type Preset"
         )
-        if w_sel is None:
+        if choice is None:
             return False
 
-        # Watches
-        wa_sel = WTail.checklist(
-            "Select WATCH event types to act on:\n"
-            "(Conditions favorable -- connect nodes for these?)",
-            watch_items,
-            title="Alert Types -- Watches"
-        )
-        if wa_sel is None:
-            return False
+        if choice == 'basic':
+            selected = list(self.PRESET_BASIC)
+            WTail.msgbox(
+                "Basic preset selected.\n\n"
+                "Active event types ({}):\n".format(len(selected)) +
+                "  " + ", ".join(sorted(selected)),
+                title="Alert Types Set",
+                height=12
+            )
+        elif choice == 'warnings':
+            selected = list(self.PRESET_ALL_WARNINGS)
+            WTail.msgbox(
+                "All Warnings preset selected.\n\n"
+                "{} warning-level event types active.".format(len(selected)),
+                title="Alert Types Set",
+                height=8
+            )
+        elif choice == 'all':
+            selected = list(self.PRESET_ALL)
+            WTail.msgbox(
+                "All Events preset selected.\n\n"
+                "{} event types active\n"
+                "(warnings + watches + advisories + national).".format(
+                    len(selected)),
+                title="Alert Types Set",
+                height=10
+            )
+        else:
+            # Custom: step through each category
+            selected = self._custom_alert_types()
+            if selected is None:
+                return False
 
-        # Tests
-        t_sel = WTail.checklist(
-            "Select TEST event types to act on:\n"
-            "(Usually leave unchecked in production)",
-            test_items,
-            title="Alert Types -- Tests"
+        # Include tests separately -- always ask
+        act_tests = WTail.yesno(
+            "Also respond to TEST broadcasts?\n\n"
+            "  RWT -- Required Weekly Test\n"
+            "  RMT -- Required Monthly Test\n\n"
+            "Useful for verifying the pipeline is working.\n"
+            "Recommended: No for production, Yes for testing.",
+            title="Test Broadcasts",
+            yes_btn="Yes -- include tests",
+            no_btn="No  -- ignore tests",
+            default_yes=False
         )
-        if t_sel is None:
-            return False
+        if act_tests:
+            selected += list(TEST_EVENTS.keys())
 
-        self.cfg['selected_warnings'] = w_sel or []
-        self.cfg['selected_watches']  = wa_sel or []
-        self.cfg['selected_tests']    = t_sel or []
-        self.cfg['act_watches']       = bool(wa_sel)
-        self.cfg['act_tests']         = bool(t_sel)
+        self.cfg['active_events'] = list(set(selected))
+        self.cfg['act_tests']     = act_tests
         return True
+
+    def _custom_alert_types(self):
+        selected = []
+
+        categories = [
+            ("Warnings",   WARNING_EVENTS,  True,
+             "WARNING events (imminent threat -- recommended to keep all)"),
+            ("Watches",    WATCH_EVENTS,    False,
+             "WATCH events (conditions favorable -- less urgent)"),
+            ("Advisories", ADVISORY_EVENTS, False,
+             "ADVISORY/STATEMENT events"),
+            ("National",   NATIONAL_EVENTS, True,
+             "NATIONAL events (EAN, EAT -- always recommended)"),
+        ]
+
+        for cat_name, event_dict, default_on, desc in categories:
+            items = [
+                (code, desc_txt, default_on)
+                for code, desc_txt in sorted(event_dict.items())
+            ]
+            sel = WTail.checklist(
+                "{}\n\n"
+                "Space = toggle, Enter = confirm".format(desc),
+                items,
+                title="Custom -- {}".format(cat_name),
+                height=min(8 + len(items), 22)
+            )
+            if sel is None:
+                return None
+            selected.extend(sel)
+
+        return selected
 
     def screen_alert_behavior(self):
         mode = WTail.radiolist(

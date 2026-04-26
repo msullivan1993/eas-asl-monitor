@@ -152,6 +152,16 @@ class AlertHandler(object):
         self.behavior       = dict(config['alert_behavior']) \
                               if 'alert_behavior' in config else {}
 
+        # active_events is a comma-separated list of event codes
+        # e.g. "TOR,SVR,FFW,EAN" -- if empty, fall back to legacy flags
+        active_str = config.get('settings', 'active_events', fallback='')
+        if active_str.strip():
+            self._active_events = set(
+                e.strip() for e in active_str.split(',') if e.strip()
+            )
+        else:
+            # Legacy fallback
+            self._active_events = None
         self.act_warnings = config.getboolean(
             'settings', 'act_on_warnings', fallback=True)
         self.act_watches  = config.getboolean(
@@ -184,6 +194,10 @@ class AlertHandler(object):
         behavior = self.behavior.get(event, '').lower()
         if behavior == 'skip':
             return False
+        # New-style: explicit active_events list from wizard
+        if self._active_events is not None:
+            return event in self._active_events
+        # Legacy fallback
         if event in NATIONAL_EVENTS:
             return True
         if event in WARNING_EVENTS and self.act_warnings:
