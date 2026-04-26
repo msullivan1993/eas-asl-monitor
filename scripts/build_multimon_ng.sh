@@ -3,35 +3,80 @@
 #  build_multimon_ng.sh
 #  Builds multimon-ng from source on HamVoIP/Arch Linux.
 #
-#  Known issue on HamVoIP: GCC 5.3 + newer kernel headers causes a
-#  __uint128_t compile error in asm/sigcontext.h. We work around it by
-#  defining the type as a dummy that satisfies the struct layout.
+#  HamVoIP ships GCC 5.3 which is too old to build current multimon-ng.
+#  We upgrade GCC first, then build. If the upgrade doesn't help we fall
+#  back to a compat header workaround so the build always succeeds.
 # =============================================================================
 set -e
 
 REPO_URL="https://github.com/EliasOenal/multimon-ng.git"
 BUILD_DIR="/tmp/multimon-ng-build"
 PIN_TAG="1.2.0"
+COMPAT_HEADER="/tmp/uint128_compat.h"
 
 echo ""
 echo "  Building multimon-ng ${PIN_TAG} from source..."
 echo ""
 
-echo "  Installing build dependencies..."
-pacman -Sy --noconfirm --needed git cmake make gcc 2>/dev/null || {
-    echo "  [ERROR] pacman failed — check your network connection"
+# ── Step 1: Ensure all build dependencies are present and up to date ─────────
+echo "  Updating package databases..."
+pacman -Sy 2>/dev/null || {
+    echo "  [ERROR] pacman -Sy failed — check network connection"
     exit 1
 }
 
-echo "  CMake version: $(cmake --version | head -1)"
-echo "  GCC version:   $(gcc --version | head -1)"
+echo "  Installing/upgrading build dependencies..."
+# Explicitly upgrade gcc rather than --needed (which skips existing installs).
+# HamVoIP ships GCC 5.3; Arch ARM repos have newer versions that fix the
+# __uint128_t issue in ARM kernel headers.
+pacman -S --noconfirm gcc make cmake git 2>/dev/null || {
+    echo "  [ERROR] dependency install failed"
+    exit 1
+}
 
+GCC_VER=$(gcc --version | head -1)
+CMAKE_VER=$(cmake --version | head -1)
+echo "  GCC:   ${GCC_VER}"
+echo "  CMake: ${CMAKE_VER}"
+
+# ── Step 2: Test whether __uint128_t is available ────────────────────────────
+echo "  Checking __uint128_t support..."
+NEEDS_COMPAT=false
+if ! echo 'typedef unsigned __int128 __uint128_t; int main(){return 0;}' \
+     | gcc -x c - -o /dev/null 2>/dev/null; then
+    echo "  __uint128_t not available in this GCC — will use compat header"
+    NEEDS_COMPAT=true
+else
+    echo "  __uint128_t OK"
+fi
+
+# ── Step 3: Write compat header if needed ────────────────────────────────────
+EXTRA_CFLAGS=""
+if [[ "$NEEDS_COMPAT" == "true" ]]; then
+    cat > "${COMPAT_HEADER}" << 'HEOF'
+#ifndef __UINT128_COMPAT_H
+#define __UINT128_COMPAT_H
+/* Compat shim for GCC versions that don't expose __uint128_t in user-space.
+ * Defines it as a 16-byte struct matching the ARM NEON register size so
+ * asm/sigcontext.h compiles correctly without needing real 128-bit support. */
+#ifndef __uint128_t
+typedef struct { unsigned long long lo, hi; } __uint128_t;
+#endif
+#endif
+HEOF
+    EXTRA_CFLAGS="-include ${COMPAT_HEADER}"
+    echo "  Compat header written: ${COMPAT_HEADER}"
+fi
+
+# ── Step 4: Clone ─────────────────────────────────────────────────────────────
 rm -rf "${BUILD_DIR}"
 echo "  Cloning repository (tag ${PIN_TAG})..."
-git clone --branch "${PIN_TAG}" --depth 1 "${REPO_URL}" "${BUILD_DIR}"
+git clone --branch "${PIN_TAG}" --depth 1 "${REPO_URL}" "${BUILD_DIR}" 2>&1 \
+    || { echo "  [ERROR] git clone failed — check network connection"; exit 1; }
 cd "${BUILD_DIR}"
 
-echo "  Patching CMakeLists.txt minimum version..."
+# ── Step 5: Patch CMake minimum version ──────────────────────────────────────
+echo "  Patching CMakeLists.txt..."
 python3 -c "
 import re
 with open('CMakeLists.txt', 'r') as f:
@@ -46,56 +91,29 @@ with open('CMakeLists.txt', 'w') as f:
 print('  ' + patched.splitlines()[0])
 "
 
+# ── Step 6: Build ─────────────────────────────────────────────────────────────
 mkdir build && cd build
 
 echo "  Configuring..."
-# First attempt — plain build
-if cmake .. -DCMAKE_BUILD_TYPE=Release 2>&1 | tail -3; then
-    :
-else
-    echo "  [WARN] cmake configure failed — unexpected"
-    exit 1
-fi
+cmake .. -DCMAKE_BUILD_TYPE=Release \
+    ${EXTRA_CFLAGS:+-DCMAKE_C_FLAGS="${EXTRA_CFLAGS}"} \
+    || { echo "  [ERROR] cmake configure failed"; exit 1; }
 
 echo "  Building ($(nproc) cores)..."
-# First build attempt
-if make -j"$(nproc)" 2>&1; then
-    echo "  Build succeeded."
-else
-    echo ""
-    echo "  Build failed — likely GCC 5.3 + kernel header __uint128_t mismatch."
-    echo "  Retrying with workaround compiler flag..."
-    echo ""
+make -j"$(nproc)" \
+    || { echo "  [ERROR] make failed — see errors above"; exit 1; }
 
-    # Clean and retry with the workaround:
-    # Define __uint128_t as a 16-byte aligned char array — satisfies the
-    # struct layout in asm/sigcontext.h without requiring actual 128-bit
-    # integer support. multimon-ng never uses this type itself.
-    cd ..
-    rm -rf build && mkdir build && cd build
-    cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_C_FLAGS="-D'__uint128_t=__attribute__((aligned(16))) unsigned char[16]'" \
-        2>&1 | tail -3
-
-    make -j"$(nproc)" 2>&1 || {
-        echo ""
-        echo "  [ERROR] Both build attempts failed."
-        echo "  Try updating GCC: pacman -Sy gcc"
-        echo "  Then re-run: sudo bash scripts/build_multimon_ng.sh"
-        exit 1
-    }
-    echo "  Build succeeded with workaround."
-fi
-
+# ── Step 7: Install ───────────────────────────────────────────────────────────
 echo "  Installing..."
-make install
+make install || { echo "  [ERROR] make install failed"; exit 1; }
+
+rm -f "${COMPAT_HEADER}"
+rm -rf "${BUILD_DIR}"
 
 if command -v multimon-ng &>/dev/null; then
     echo ""
     echo "  ✓ multimon-ng installed: $(multimon-ng --version 2>&1 | head -1)"
-    rm -rf "${BUILD_DIR}"
 else
-    echo "  [ERROR] make install ran but binary not found"
+    echo "  [ERROR] Installation failed — binary not found after make install"
     exit 1
 fi
