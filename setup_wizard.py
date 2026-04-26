@@ -1910,23 +1910,53 @@ class EASWizard:
             height=16
         )
 
-        for fips, name in sorted(fips_map.items()):
-            existing = node_mapping.get(fips, '')
-            node = WTail.inputbox(
-                ("DESTINATION node for:\n\n"
-                "  County: {}\n"
-                "  FIPS:   {}\n\n"
-                "Enter the node number that your weather radio\n"
-                "node should CONNECT TO when this county is\n"
-                "included in an alert.\n\n"
-                "Enter 0 to skip this county.").format(name, fips),
-                default=existing,
-                title="Node Mapping"
+        # Offer to apply one node to all counties
+        apply_all_node = None
+        if len(fips_map) > 1:
+            same_for_all = WTail.yesno(
+                "You have {} counties selected.\n\n"
+                "Would you like to use the SAME destination node\n"
+                "for ALL counties? (You can change individual\n"
+                "counties afterward.)".format(len(fips_map)),
+                title="Node Mapping",
+                yes_btn="Same Node for All",
+                no_btn="Set Individually",
+                default_yes=False
             )
-            if node is None:
-                return False
-            if node.strip() and node.strip() != '0':
-                node_mapping[fips] = node.strip()
+            if same_for_all:
+                apply_all_node = WTail.inputbox(
+                    "Enter the destination node number to use\n"
+                    "for ALL {} counties.\n\n"
+                    "Your weather radio node will connect TO\n"
+                    "this node when any alert fires.".format(len(fips_map)),
+                    default=list(node_mapping.values())[0] if node_mapping else '',
+                    title="Node for All Counties",
+                    height=12
+                )
+                if apply_all_node and apply_all_node.strip().isdigit():
+                    apply_all_node = apply_all_node.strip()
+                    for fips in fips_map:
+                        node_mapping[fips] = apply_all_node
+                else:
+                    apply_all_node = None  # fall through to per-county
+
+        if apply_all_node is None:
+            for fips, name in sorted(fips_map.items()):
+                existing = node_mapping.get(fips, '')
+                node = WTail.inputbox(
+                    "{} [{}]\n\n"
+                    "Enter the DESTINATION node number.\n"
+                    "Your weather radio node connects TO\n"
+                    "this node when an alert fires here.\n\n"
+                    "Enter 0 to skip.".format(name, fips),
+                    default=existing,
+                    title="Destination Node",
+                    height=13
+                )
+                if node is None:
+                    return False
+                if node.strip() and node.strip() != '0':
+                    node_mapping[fips] = node.strip()
 
         self.cfg['fips_map'] = node_mapping
         return True
