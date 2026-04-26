@@ -99,13 +99,22 @@ class WTail:
 
     @staticmethod
     def _run(args):
-        """Run whiptail, return (exit_code, output)."""
+        """Run whiptail, return (exit_code, output).
+        whiptail draws its UI on /dev/tty and returns the user's choice on
+        stderr.  We must open /dev/tty explicitly so it works whether we are
+        called from a plain terminal, via sudo, or from inside install.sh.
+        """
         full = ['whiptail', '--backtitle', WTail.BACKTITLE] + args
         try:
+            tty = open('/dev/tty', 'r+')
             result = subprocess.run(
                 full,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True
+                stdin=tty,
+                stdout=tty,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
             )
+            tty.close()
             return result.returncode, result.stderr.strip()
         except FileNotFoundError:
             print("ERROR: whiptail not found. Install libnewt (Arch) or whiptail (Debian).")
