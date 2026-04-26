@@ -583,22 +583,54 @@ def zip_to_fips_local(zipcode):
         with open(FIPS_DATA_FILE, 'r') as f:
             reader = csv.reader(f, delimiter='|')
             for row in reader:
-                if len(row) >= 2 and row[0].strip() == zipcode:
-                    # Census GEOID is 5 digits (2-digit state + 3-digit county)
-                    # SAME FIPS needs 6 digits (3-digit state padded + 3-digit county)
-                    geoid     = row[1].strip()   # e.g. "21019"
-                    state_2   = geoid[:2]         # "21"
-                    county_3  = geoid[2:]         # "019"
-                    fips_6    = state_2.zfill(3) + county_3  # "021019"
-                    county_name = row[2].strip() if len(row) > 2 else fips_6
-                    results.append({
-                        'fips':   fips_6,
-                        'county': county_name,
-                        'state':  state_2
-                    })
+                if not row:
+                    continue
+                # Try both column 0 and column 1 in case the file has
+                # a different column order than expected
+                zcta = row[0].strip()
+                if zcta == zipcode:
+                    geoid = row[1].strip() if len(row) > 1 else ''
+                    if geoid and len(geoid) >= 5:
+                        state_2 = geoid[:2]
+                        county_3 = geoid[2:5]
+                        fips_6 = state_2.zfill(3) + county_3
+                        county_name = row[2].strip() if len(row) > 2 else fips_6
+                        results.append({
+                            'fips':   fips_6,
+                            'county': county_name,
+                            'state':  state_2
+                        })
         return results
     except Exception:
         return []
+
+
+def zip_to_fips_local_debug(zipcode):
+    """Return debug info about the local FIPS file for diagnostics."""
+    info = {'exists': False, 'size': 0, 'header': '', 'sample': '', 'found': False}
+    if not Path(FIPS_DATA_FILE).exists():
+        return info
+    import os
+    info['exists'] = True
+    info['size']   = os.path.getsize(FIPS_DATA_FILE)
+    try:
+        with open(FIPS_DATA_FILE, 'r') as f:
+            reader = csv.reader(f, delimiter='|')
+            rows = []
+            for i, row in enumerate(reader):
+                if i == 0:
+                    info['header'] = '|'.join(row[:4])
+                if i < 3:
+                    rows.append('|'.join(row[:4]))
+                if row and row[0].strip() == zipcode:
+                    info['found'] = True
+                    info['sample'] = '|'.join(row[:4])
+                    break
+            if not info['sample'] and rows:
+                info['sample'] = rows[-1]
+    except Exception as e:
+        info['error'] = str(e)
+    return info
 
 
 def lookup_fips(zipcode):
@@ -1615,24 +1647,26 @@ class EASWizard:
                 lookup_errors.append(z)
 
         if not all_counties:
-            # Show which ZIPs failed and whether the local file exists
-            import os
-            fips_exists = os.path.exists(FIPS_DATA_FILE)
-            fips_size   = os.path.getsize(FIPS_DATA_FILE) if fips_exists else 0
-            debug_info  = (
-                "FIPS file: {}\n"
-                "File size: {} bytes\n"
-                "ZIPs tried: {}"
+            # Show diagnostic info to help identify the problem
+            dbg = zip_to_fips_local_debug(zips[0] if zips else '')
+            debug_info = (
+                "FIPS file: {}  ({} bytes)\n"
+                "ZIP {} in file: {}\n"
+                "File header: {}\n"
+                "Sample row:  {}"
             ).format(
-                "found" if fips_exists else "MISSING",
-                fips_size,
-                ', '.join(lookup_errors)
+                "found" if dbg.get('exists') else "MISSING",
+                dbg.get('size', 0),
+                zips[0] if zips else '?',
+                "YES" if dbg.get('found') else "NO",
+                dbg.get('header', 'n/a')[:50],
+                dbg.get('sample', 'n/a')[:50]
             )
             WTail.msgbox(
                 "Could not find counties for the ZIP code(s) entered.\n\n"
                 + debug_info,
                 title="Lookup Failed -- Debug Info",
-                height=12
+                height=14
             )
             WTail.msgbox(
                 "Could not find counties for the ZIP code(s) entered.\n\n"
@@ -2107,11 +2141,52 @@ Files to be modified:
         return True
 
     def screen_done(self):
-        WTail.msgbox(
-            "Setup complete!\n\nNext steps:\n\n  1. Start the service:\n     systemctl start eas-monitor\n\n  2. Watch the logs:\n     journalctl -u eas-monitor -f\n\n  3. Edit FIPS map or alert settings:\n     nano {}\n\n  4. Test alert playback (after first real alert):\n     DTMF *91 on your node = most recent alert\n\nThank you for using EAS/SAME AllStarLink Monitor.".format(CONFIG_FILE),
+        start_now = WTail.yesno(
+            "Setup complete!\n\n"
+            "Configuration saved to:\n"
+            "  {}\n\n"
+            "Start the eas-monitor service now?\n\n"
+            "Watch logs with:\n"
+            "  journalctl -u eas-monitor -f".format(CONFIG_FILE),
             title="Setup Complete",
-            height=20
+            yes_btn="Start Service",
+            no_btn="Not Yet"
         )
+        if start_now:
+            WTail.infobox("Starting eas-monitor service...")
+            ret = subprocess.call(
+                ['systemctl', 'start', 'eas-monitor'],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
+            if ret == 0:
+                WTail.msgbox(
+                    "Service started successfully.\n\n"
+                    "Watch logs:\n"
+                    "  journalctl -u eas-monitor -f\n\n"
+                    "DTMF playback after first alert:\n"
+                    "  *91 = most recent alert recording",
+                    title="Service Running",
+                    height=14
+                )
+            else:
+                WTail.msgbox(
+                    "Service failed to start.\n\n"
+                    "Check logs:\n"
+                    "  journalctl -u eas-monitor -n 50",
+                    title="Start Failed",
+                    height=10
+                )
+        else:
+            WTail.msgbox(
+                "To start the service later:\n\n"
+                "  systemctl start eas-monitor\n\n"
+                "Edit settings:\n"
+                "  nano {}\n\n"
+                "DTMF playback after first alert:\n"
+                "  *91 = most recent recording".format(CONFIG_FILE),
+                title="Manual Start",
+                height=14
+            )
         return True
 
 

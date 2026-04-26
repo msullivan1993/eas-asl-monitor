@@ -227,19 +227,22 @@ section "Step 5: Download Test Sample"
 TEST_SAMPLE="${INSTALL_DIR}/test/same_test.wav"
 TEST_URL="https://www.weather.gov/media/arx/sametest.wav"
 
-if [[ ! -f "$TEST_SAMPLE" ]]; then
+if [[ ! -f "$TEST_SAMPLE" ]] || [[ ! -s "$TEST_SAMPLE" ]]; then
     echo "  Downloading SAME test audio sample..."
     if command -v wget &>/dev/null; then
-        wget -q "$TEST_URL" -O "$TEST_SAMPLE" 2>/dev/null && \
-            info "Test sample downloaded" || \
-            warn "Test sample download failed — decode test will be skipped"
+        wget -q "$TEST_URL" -O "$TEST_SAMPLE" 2>/dev/null
     elif command -v curl &>/dev/null; then
-        curl -sL "$TEST_URL" -o "$TEST_SAMPLE" 2>/dev/null && \
-            info "Test sample downloaded" || \
-            warn "Test sample download failed"
+        curl -sL "$TEST_URL" -o "$TEST_SAMPLE" 2>/dev/null
+    fi
+    # Verify the file has content — 0-byte files cause silent test failure
+    if [[ -s "$TEST_SAMPLE" ]]; then
+        info "Test sample downloaded ($(du -sh "$TEST_SAMPLE" | cut -f1))"
+    else
+        rm -f "$TEST_SAMPLE"
+        warn "Test sample download failed — decode test will be skipped"
     fi
 else
-    info "Test sample already present"
+    info "Test sample already present ($(du -sh "$TEST_SAMPLE" | cut -f1))"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
