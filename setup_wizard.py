@@ -2360,8 +2360,8 @@ class EASWizard:
                  ('ADR','Administrative Message',        False)]
             ),
             (
-                "Watches",
-                "Conditions favorable -- less urgent than warnings",
+                "Watches -- Convective / Tropical / Flood",
+                "Tornado, storm, flood, hurricane watches",
                 [('TOA','Tornado Watch',            False),
                  ('SVA','Severe Thunderstorm Watch',False),
                  ('FFA','Flash Flood Watch',        False),
@@ -2369,15 +2369,19 @@ class EASWizard:
                  ('HUA','Hurricane Watch',          False),
                  ('TRA','Tropical Storm Watch',     False),
                  ('TYA','Typhoon Watch',            False),
-                 ('BZA','Blizzard Watch',           False),
+                 ('TSA','Tsunami Watch',            False)]
+            ),
+            (
+                "Watches -- Winter / Wind / Other",
+                "Winter, wind, freeze, avalanche, coastal watches",
+                [('BZA','Blizzard Watch',           False),
                  ('WSA','Winter Storm Watch',       False),
                  ('HZA','Hard Freeze Watch',        False),
                  ('FZA','Freeze Watch',             False),
                  ('WCA','Wind Chill Watch',         False),
+                 ('HWA','High Wind Watch',          False),
                  ('AVA','Avalanche Watch',          False),
-                 ('TSA','Tsunami Watch',            False),
-                 ('CFA','Coastal Flood Watch',      False),
-                 ('HWA','High Wind Watch',          False)]
+                 ('CFA','Coastal Flood Watch',      False)]
             ),
             (
                 "Advisories / National",
