@@ -2,7 +2,7 @@
 ami.py - Asterisk Manager Interface
 ====================================
 Hardened AMI client with retry on transient failures.
-Python 3.5 compatible — no f-strings, no X|Y type hints.
+Python 3.5 compatible -- no f-strings, no X|Y type hints.
 """
 
 import logging
@@ -44,7 +44,7 @@ class AsteriskAMI(object):
                 return None
             return s
         except ConnectionRefusedError:
-            self.log.warning("AMI connection refused — Asterisk may be reloading")
+            self.log.warning("AMI connection refused -- Asterisk may be reloading")
         except socket.timeout:
             self.log.warning("AMI connection timed out (%s:%s)", self.host, self.port)
         except Exception as e:
@@ -60,7 +60,7 @@ class AsteriskAMI(object):
             if s is None:
                 if attempt < AMI_RETRIES:
                     self.log.warning(
-                        "AMI not available — retry %d/%d in %ss",
+                        "AMI not available -- retry %d/%d in %ss",
                         attempt, AMI_RETRIES, AMI_RETRY_WAIT
                     )
                     time.sleep(AMI_RETRY_WAIT)
@@ -97,7 +97,7 @@ class AsteriskAMI(object):
             self.log.warning("rpt cmd %s %s may have failed: %s",
                              node, command, resp.strip()[:80])
         elif not ok:
-            self.log.warning("rpt cmd %s %s — no response (Asterisk down?)",
+            self.log.warning("rpt cmd %s %s -- no response (Asterisk down?)",
                              node, command)
         return ok
 

@@ -36,7 +36,7 @@ def _safe_terminate(proc, name='', log=None):
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 if log:
-                    log.warning("%s did not exit on SIGTERM — sending SIGKILL",
+                    log.warning("%s did not exit on SIGTERM -- sending SIGKILL",
                                 name or 'process')
                 proc.kill()
                 proc.wait(timeout=2)
@@ -107,7 +107,7 @@ class SimplePipeline(object):
                 if not ready:
                     stalls += 1
                     self.log.warning(
-                        "No audio data for %ds — source may be hung",
+                        "No audio data for %ds -- source may be hung",
                         int(SOURCE_READ_TIMEOUT * stalls)
                     )
                     if self.source.poll() is not None:
@@ -118,7 +118,7 @@ class SimplePipeline(object):
                         break
                     if stalls >= 6:
                         self.log.error(
-                            "Audio source unresponsive — forcing restart"
+                            "Audio source unresponsive -- forcing restart"
                         )
                         break
                     continue
@@ -126,7 +126,7 @@ class SimplePipeline(object):
                 stalls = 0
                 chunk  = self.source.stdout.read(CHUNK_SIZE)
                 if not chunk:
-                    self.log.warning("Audio source EOF — disconnected?")
+                    self.log.warning("Audio source EOF -- disconnected?")
                     break
 
                 try:
@@ -306,7 +306,7 @@ class WidebandPipeline(object):
             if not ready:
                 stalls += 1
                 self.log.warning(
-                    "No I/Q data for %ds — RTL-SDR may be disconnected",
+                    "No I/Q data for %ds -- RTL-SDR may be disconnected",
                     int(SOURCE_READ_TIMEOUT * stalls)
                 )
                 if rtl_proc.poll() is not None:
@@ -314,14 +314,14 @@ class WidebandPipeline(object):
                                    rtl_proc.returncode)
                     break
                 if stalls >= 6:
-                    self.log.error("rtl_sdr unresponsive — forcing restart")
+                    self.log.error("rtl_sdr unresponsive -- forcing restart")
                     break
                 continue
 
             stalls = 0
             raw    = rtl_proc.stdout.read(bytes_per_block)
             if not raw or len(raw) < bytes_per_block:
-                self.log.warning("rtl_sdr short read — device disconnected?")
+                self.log.warning("rtl_sdr short read -- device disconnected?")
                 break
 
             t_start = time.time()
@@ -374,7 +374,7 @@ class WidebandPipeline(object):
                 if slow_count <= 5 or slow_count % 60 == 0:
                     self.log.warning(
                         "Block took %dms (threshold %dms). "
-                        "%d channels — consider fewer freqs or faster hardware.",
+                        "%d channels -- consider fewer freqs or faster hardware.",
                         int(elapsed * 1000),
                         int(warn_threshold * 1000),
                         len(self.frequencies)

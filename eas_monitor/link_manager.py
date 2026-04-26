@@ -100,6 +100,6 @@ class LinkManager(object):
         for node, info in list(self._active.items()):
             if now >= info['expiry']:
                 self.log.warning(
-                    "Node %s purge time elapsed — auto-disconnecting", node
+                    "Node %s purge time elapsed -- auto-disconnecting", node
                 )
                 self.disconnect(node)

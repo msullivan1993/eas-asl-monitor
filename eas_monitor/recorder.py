@@ -70,7 +70,7 @@ class AlertRecorder(object):
             return
         if not self._check_disk_space():
             self.log.error(
-                "Insufficient disk space (< %dMB) — recording skipped",
+                "Insufficient disk space (< %dMB) -- recording skipped",
                 MIN_FREE_MB
             )
             return
@@ -102,7 +102,7 @@ class AlertRecorder(object):
         audio = self._buffer.getvalue()
         self._buffer = BytesIO()
         if len(audio) < 1000:
-            self.log.debug("Recording too short — discarding")
+            self.log.debug("Recording too short -- discarding")
             return None
         ts       = datetime.now().strftime('%Y%m%d_%H%M%S')
         event    = self._current_meta.get('event', 'UNK')

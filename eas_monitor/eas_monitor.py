@@ -63,7 +63,7 @@ def build_usrp_sinks(config, log):
     if source_type == 'usb_shared':
         return {}
     if 'usrp_nodes' not in config:
-        log.warning("No [usrp_nodes] section — USRP audio injection disabled")
+        log.warning("No [usrp_nodes] section -- USRP audio injection disabled")
         return {}
     sinks = {}
     for key, value in config['usrp_nodes'].items():
@@ -80,7 +80,7 @@ def build_usrp_sinks(config, log):
 def check_dependencies(source_type, ami, log):
     if not CONVERSION_AVAILABLE:
         log.error(
-            "Audio recording disabled — neither audioop nor numpy available. "
+            "Audio recording disabled -- neither audioop nor numpy available. "
             "Install numpy: pip install numpy --break-system-packages"
         )
     else:
@@ -106,7 +106,7 @@ def _check_dvb_conflict(log):
             modules = f.read()
         if 'dvb_usb_rtl28xxu' in modules or 'rtl2832' in modules:
             log.warning(
-                "DVB kernel driver loaded — may conflict with rtl_fm. "
+                "DVB kernel driver loaded -- may conflict with rtl_fm. "
                 "If rtl_fm fails: sudo modprobe -r dvb_usb_rtl28xxu rtl2832"
             )
     except Exception:
@@ -128,7 +128,7 @@ def _handle_signal(signum, frame):
     sig_names = {signal.SIGTERM: 'SIGTERM', signal.SIGHUP: 'SIGHUP'}
     sig_name  = sig_names.get(signum, str(signum))
     if _shutdown.log:
-        _shutdown.log.info("Received %s — shutting down cleanly", sig_name)
+        _shutdown.log.info("Received %s -- shutting down cleanly", sig_name)
 
     for sink in _shutdown.usrp_sinks:
         try:
@@ -255,7 +255,7 @@ def main():
         else:
             log.warning(
                 "Recording enabled in config but no conversion library "
-                "available — recording will be skipped."
+                "available -- recording will be skipped."
             )
     _shutdown.recorder = recorder
 
@@ -304,14 +304,14 @@ def main():
                     log         = log
                 )
                 _shutdown.pipeline = pipeline
-                log.info("Pipeline running — listening for SAME headers")
+                log.info("Pipeline running -- listening for SAME headers")
                 pipeline.run(handler)
 
-            log.warning("Pipeline exited cleanly — restarting")
+            log.warning("Pipeline exited cleanly -- restarting")
             consecutive_fast = 0
 
         except KeyboardInterrupt:
-            log.info("Keyboard interrupt — shutting down")
+            log.info("Keyboard interrupt -- shutting down")
             _handle_signal(signal.SIGTERM, None)
 
         except RuntimeError as e:
@@ -329,7 +329,7 @@ def main():
             consecutive_fast += 1
             if consecutive_fast >= 3:
                 log.error(
-                    "Pipeline failed %d times rapidly — backing off 60s",
+                    "Pipeline failed %d times rapidly -- backing off 60s",
                     consecutive_fast
                 )
                 _cleanup_after_failure(link_mgr, primary_usrp, recorder, log)

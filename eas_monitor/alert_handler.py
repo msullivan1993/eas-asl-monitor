@@ -188,7 +188,7 @@ class AlertHandler(object):
         )
 
         if not self._should_act(event):
-            self.log.info("Event '%s' not in active set — no action", event)
+            self.log.info("Event '%s' not in active set -- no action", event)
             return
 
         mode       = self._get_mode(event)
@@ -218,7 +218,7 @@ class AlertHandler(object):
         nodes = self._resolve_nodes(parsed['fips_codes'])
         if not nodes:
             self.log.info(
-                "No FIPS mapping for %s — no nodes connected",
+                "No FIPS mapping for %s -- no nodes connected",
                 parsed['fips_codes']
             )
             return
