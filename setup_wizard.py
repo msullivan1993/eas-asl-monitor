@@ -1475,19 +1475,23 @@ class EASWizard:
         self.cfg['audio_source']      = 'usrp_node'
 
         # Generate and show the Asterisk config additions
+        # Derive scheduler name from radio node (HamVoIP pattern: schedule{node})
+        radio_node  = self.cfg.get("local_node", "")
+        scheduler   = "schedule" + radio_node if radio_node else "rpt-sched"
         rpt_stanza = (
             "\n"
             "; === EAS Monitor private listener node (added by eas-monitor installer) ===\n"
             "[{node}]\n"
             "rxchannel=USRP/127.0.0.1:{rx}:{tx}\n"
             "duplex=0\n"
-            "scheduler=rpt-sched\n"
-        ).format(node=private_node, rx=rx_port, tx=rx_port + 1)
+            "scheduler={sched}\n"
+        ).format(node=private_node, rx=rx_port, tx=rx_port + 1,
+                 sched=scheduler)
 
         ext_stanza = (
             "\n"
             "; === EAS Monitor private node (added by eas-monitor installer) ===\n"
-            "exten => {node},1,Rpt({node})\n"
+            "exten={node},1,Rpt,{node}|X\n"
         ).format(node=private_node)
 
         confirmed = WTail.yesno(
@@ -1496,9 +1500,9 @@ class EASWizard:
             "rpt.conf addition:\n"
             "  [{node}]\n"
             "  rxchannel=USRP/127.0.0.1:{rx}:{tx}\n"
-            "  duplex=0\n\n"
-            "extensions.conf addition:\n"
-            "  exten => {node},1,Rpt({node})\n\n"
+            "  duplex=0  scheduler=schedule{rnode}\n\n"
+            "extensions.conf ([radio-secure]):\n"
+            "  exten={node},1,Rpt,{node}|X\n\n"
             "After applying, Asterisk will be reloaded.\n"
             "Proceed?".format(
                 node=private_node, rx=rx_port, tx=rx_port + 1),
@@ -1543,9 +1547,10 @@ class EASWizard:
                     ext_content = f.read()
                 # Append to radio-secure context if it exists, else append at end
                 if '[radio-secure]' in ext_content:
+                    # Insert after [radio-secure] line
                     ext_content = ext_content.replace(
-                        '[radio-secure]',
-                        '[radio-secure]' + ext_stanza,
+                        '[radio-secure]\n',
+                        '[radio-secure]\n' + ext_stanza,
                         1
                     )
                     with open(ext_path, 'w') as f:

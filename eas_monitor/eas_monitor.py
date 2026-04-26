@@ -283,6 +283,22 @@ def main():
     source = get_source(config)
     log.info("Source: %s", source.describe())
 
+    # For USRP node source: connect the radio node to the private
+    # USRP listener node in local-monitor mode so audio flows through.
+    # This is additive -- does not change any existing node connections.
+    if source_type == "usrp_node" and not dry_run:
+        private_node = config.get("source_usrp_node", "node", fallback="")
+        if private_node and local_node:
+            log.info(
+                "Connecting radio node %s -> USRP listener %s (ilink 8)",
+                local_node, private_node
+            )
+            # ilink_connect_local_monitor(listener, source)
+            # = rpt cmd listener ilink 8 source
+            # We want: rpt cmd radio_node(42266) ilink 8 private_node(1998)
+            # so radio_node is the "listener" that connects to private_node
+            ami.ilink_connect_local_monitor(local_node, private_node)
+
     consecutive_fast = 0
 
     while True:
