@@ -2,7 +2,6 @@
 Description=EAS/SAME AllStarLink Monitor
 Documentation=https://github.com/msullivan1993/eas-asl-monitor
 After=network.target asterisk.service sound.target
-Requires=asterisk.service
 
 [Service]
 Type=simple
