@@ -98,7 +98,7 @@ class WTail:
     BACKTITLE = "EAS/SAME AllStarLink Monitor — Setup Wizard"
 
     @staticmethod
-    def _run(args) -> tuple[int, str]:
+    def _run(args):
         """Run whiptail, return (exit_code, output)."""
         full = ['whiptail', '--backtitle', WTail.BACKTITLE] + args
         try:
@@ -112,20 +112,20 @@ class WTail:
             sys.exit(1)
 
     @staticmethod
-    def msgbox(text, title: str = '', height: int = 10) -> None:
+    def msgbox(text, title = '', height = 10):
         args = ['--title', title, '--msgbox', text,
                 str(height), str(SCREEN_WIDTH)]
         WTail._run(args)
 
     @staticmethod
-    def infobox(text, title: str = '') -> None:
+    def infobox(text, title = ''):
         args = ['--title', title, '--infobox', text, '5', str(SCREEN_WIDTH)]
         WTail._run(args)
 
     @staticmethod
-    def yesno(text, title: str = '',
-              default_yes: bool = True,
-              yes_btn: str = 'Yes', no_btn: str = 'No') -> bool:
+    def yesno(text, title = '',
+              default_yes = True,
+              yes_btn = 'Yes', no_btn = 'No'):
         args = [
             '--title', title,
             '--yes-button', yes_btn,
@@ -138,15 +138,15 @@ class WTail:
         return rc == 0
 
     @staticmethod
-    def inputbox(text, default: str = '',
-                 title: str = '', height: int = 8):
+    def inputbox(text, default = '',
+                 title = '', height = 8):
         args = ['--title', title, '--inputbox', text,
                 str(height), str(SCREEN_WIDTH), default]
         rc, out = WTail._run(args)
         return out if rc == 0 else None
 
     @staticmethod
-    def passwordbox(text, title: str = ''):
+    def passwordbox(text, title = ''):
         args = ['--title', title, '--passwordbox', text,
                 '8', str(SCREEN_WIDTH), '']
         rc, out = WTail._run(args)
@@ -154,7 +154,7 @@ class WTail:
 
     @staticmethod
     def menu(text, items,
-             title: str = '', height: int = None):
+             title = '', height = None):
         """items = list of (tag, description) tuples."""
         n = len(items)
         h = height or min(SCREEN_HEIGHT, n + 8)
@@ -167,7 +167,7 @@ class WTail:
 
     @staticmethod
     def radiolist(text, items,
-                  title: str = ''):
+                  title = ''):
         """items = list of (tag, description, selected_bool) tuples."""
         n = len(items)
         h = min(SCREEN_HEIGHT, n + 8)
@@ -180,7 +180,7 @@ class WTail:
 
     @staticmethod
     def checklist(text, items,
-                  title: str = ''):
+                  title = ''):
         """items = list of (tag, description, checked_bool) tuples."""
         n = len(items)
         h = min(SCREEN_HEIGHT, n + 8)
@@ -198,7 +198,7 @@ class WTail:
         return [line for line in out.splitlines() if line]
 
     @staticmethod
-    def textbox(text, title: str = '') -> None:
+    def textbox(text, title = ''):
         """Display scrollable text."""
         import tempfile
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt',
@@ -211,7 +211,7 @@ class WTail:
         os.unlink(fname)
 
     @staticmethod
-    def gauge(text, steps) -> None:
+    def gauge(text, steps):
         """
         Show a progress gauge while executing steps.
         steps = list of (description, callable) tuples.
@@ -244,7 +244,7 @@ class WTail:
 
 # ── System detection helpers ────────────────────────────────────────────────
 
-def detect_distro() -> str:
+def detect_distro():
     try:
         content = Path('/etc/os-release').read_text()
         if 'hamvoip' in content.lower() or 'arch' in content.lower():
@@ -256,7 +256,7 @@ def detect_distro() -> str:
     return 'unknown'
 
 
-def detect_alsa_capture_devices() -> list:
+def detect_alsa_capture_devices():
     """Returns list of (hw_string, name) tuples."""
     try:
         out = subprocess.run(['arecord', '-l'],
@@ -273,7 +273,7 @@ def detect_alsa_capture_devices() -> list:
         return []
 
 
-def detect_rtlsdr_devices() -> list:
+def detect_rtlsdr_devices():
     """Returns list of (index, name) tuples."""
     try:
         out = subprocess.run(['rtl_test', '-t'],
@@ -288,7 +288,7 @@ def detect_rtlsdr_devices() -> list:
         return []
 
 
-def test_ami(host, port, user, secret) -> bool:
+def test_ami(host, port, user, secret):
     """Try to log in to AMI. Returns True on success."""
     import socket
     try:
@@ -307,7 +307,7 @@ def test_ami(host, port, user, secret) -> bool:
         return False
 
 
-def check_dsnoop(device_hw) -> bool:
+def check_dsnoop(device_hw):
     """Test if dsnoop can open the given ALSA device."""
     try:
         proc = subprocess.run(
@@ -332,7 +332,7 @@ GENERIC_USB_SERIALS = {'', '000000', '0000000000000000'}
 UDEV_RULES_FILE = '/etc/udev/rules.d/99-eas-monitor.rules'
 
 
-def read_rtlsdr_eeprom(device_index) -> dict:
+def read_rtlsdr_eeprom(device_index):
     """
     Read EEPROM info from an RTL-SDR dongle.
     Returns dict with keys: serial, vendor_id, product_id, manufacturer, product.
@@ -374,7 +374,7 @@ def read_rtlsdr_eeprom(device_index) -> dict:
     return result
 
 
-def write_rtlsdr_serial(device_index, new_serial) -> bool:
+def write_rtlsdr_serial(device_index, new_serial):
     """
     Write a new serial number to an RTL-SDR dongle's EEPROM.
     rtl_eeprom prompts for confirmation — we pipe 'y' to stdin.
@@ -393,7 +393,7 @@ def write_rtlsdr_serial(device_index, new_serial) -> bool:
 
 
 def wait_for_rtlsdr_serial(expected_serial,
-                            timeout: int = 30) -> bool:
+                            timeout = 30):
     """
     Poll for a dongle with the given serial to appear.
     Returns True when found, False on timeout.
@@ -414,7 +414,7 @@ def wait_for_rtlsdr_serial(expected_serial,
     return False
 
 
-def get_alsa_udev_attrs(hw_string) -> dict:
+def get_alsa_udev_attrs(hw_string):
     """
     Probe USB device attributes for an ALSA card via udevadm.
     hw_string: 'hw:1,0' or 'hw:2,0' etc.
@@ -466,7 +466,7 @@ def get_alsa_udev_attrs(hw_string) -> dict:
 
 
 def build_udev_rule(symlink_name, vendor, product,
-                    serial: str = '', subsystem: str = 'sound') -> tuple[str, str]:
+                    serial = '', subsystem = 'sound'):
     """
     Build a udev rule string and a plain-English description of what it matches.
     Returns (rule_line, description).
@@ -500,7 +500,7 @@ def build_udev_rule(symlink_name, vendor, product,
     return rule, match_desc
 
 
-def write_udev_rules(rules) -> bool:
+def write_udev_rules(rules):
     """
     Write a list of rule lines to the udev rules file and reload.
     rules: list of strings (one rule per line).
@@ -521,14 +521,14 @@ def write_udev_rules(rules) -> bool:
         return False
 
 
-def generate_wx_serial(index: int = 1) -> str:
+def generate_wx_serial(index = 1):
     """Generate a human-readable serial for a WX monitor dongle."""
     return "WXMON{:02d}".format(index)
 
 
 # ── FIPS lookup ─────────────────────────────────────────────────────────────
 
-def download_fips_data() -> bool:
+def download_fips_data():
     """Download ZCTA-to-county relationship file from Census Bureau."""
     Path(FIPS_DATA_FILE).parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -539,7 +539,7 @@ def download_fips_data() -> bool:
         return False
 
 
-def zip_to_fips_api(zipcode) -> list:
+def zip_to_fips_api(zipcode):
     """Live Census API lookup. Returns list of {fips, county, state} dicts."""
     try:
         url = CENSUS_API.format(zip=zipcode)
@@ -559,7 +559,7 @@ def zip_to_fips_api(zipcode) -> list:
         return []
 
 
-def zip_to_fips_local(zipcode) -> list:
+def zip_to_fips_local(zipcode):
     """Local ZCTA file lookup. Returns list of {fips, county, state} dicts."""
     if not Path(FIPS_DATA_FILE).exists():
         return []
@@ -582,7 +582,7 @@ def zip_to_fips_local(zipcode) -> list:
         return []
 
 
-def lookup_fips(zipcode) -> list:
+def lookup_fips(zipcode):
     """Try API first, fall back to local file."""
     results = zip_to_fips_api(zipcode)
     if not results:
@@ -606,7 +606,7 @@ STATE_FIPS = {
 
 # ── Config writing ──────────────────────────────────────────────────────────
 
-def write_config(cfg) -> None:
+def write_config(cfg):
     """Write fips_nodes.conf from collected wizard data."""
     Path(INSTALL_DIR).mkdir(parents=True, exist_ok=True)
     c = configparser.ConfigParser()
@@ -705,7 +705,7 @@ def write_config(cfg) -> None:
 
 # ── System configuration helpers ────────────────────────────────────────────
 
-def setup_dsnoop(device_hw) -> bool:
+def setup_dsnoop(device_hw):
     """Write ALSA dsnoop stanza to /etc/asound.conf."""
     card_dev = device_hw.replace('hw:', '')
     stanza = """
@@ -729,7 +729,7 @@ pcm.eas_tap {{
         return False
 
 
-def setup_snd_aloop() -> bool:
+def setup_snd_aloop():
     """Enable snd-aloop kernel module (for usb_shared fallback if dsnoop fails)."""
     try:
         subprocess.run(['modprobe', 'snd-aloop'], check=True,
@@ -749,7 +749,7 @@ def setup_snd_aloop() -> bool:
         return False
 
 
-def enable_chan_usrp() -> bool:
+def enable_chan_usrp():
     """Enable chan_usrp.so in /etc/asterisk/modules.conf."""
     modules_conf = Path('/etc/asterisk/modules.conf')
     if not modules_conf.exists():
@@ -774,7 +774,7 @@ def enable_chan_usrp() -> bool:
 
 
 def add_usrp_node_to_asterisk(node_num, tx_port,
-                               rx_port) -> bool:
+                               rx_port):
     """Add a USRP private node to rpt.conf and extensions.conf."""
     rpt_conf = Path('/etc/asterisk/rpt.conf')
     ext_conf = Path('/etc/asterisk/extensions.conf')
@@ -831,7 +831,7 @@ idtime = 99999999
         return False
 
 
-def add_dtmf_playback_commands(public_node, max_recs) -> bool:
+def add_dtmf_playback_commands(public_node, max_recs):
     """Add DTMF playback commands to rpt.conf [functions] stanza."""
     rpt_conf = Path('/etc/asterisk/rpt.conf')
     if not rpt_conf.exists():
@@ -860,7 +860,7 @@ def add_dtmf_playback_commands(public_node, max_recs) -> bool:
         return False
 
 
-def reload_asterisk() -> bool:
+def reload_asterisk():
     """Reload Asterisk configuration."""
     try:
         subprocess.run(['asterisk', '-rx', 'reload'],
@@ -870,7 +870,7 @@ def reload_asterisk() -> bool:
         return False
 
 
-def install_service(install_dir) -> bool:
+def install_service(install_dir):
     """Install and enable the systemd service."""
     src = Path(install_dir) / 'systemd' / 'eas-monitor.service'
     if not src.exists():
@@ -890,7 +890,7 @@ def install_service(install_dir) -> bool:
 
 class EASWizard:
 
-    def __init__(self, update_mode: bool = False):
+    def __init__(self, update_mode = False):
         self.cfg          = {}
         self.update_mode  = update_mode
         self._install_dir = str(Path(__file__).parent.parent.resolve())
@@ -1265,7 +1265,7 @@ class EASWizard:
                 )
         return True
 
-    def _test_stream(self, url, timeout: int = 8) -> bool:
+    def _test_stream(self, url, timeout = 8):
         """Test stream reachability with ffmpeg."""
         try:
             proc = subprocess.run(
