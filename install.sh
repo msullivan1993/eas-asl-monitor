@@ -295,5 +295,6 @@ else
     echo "  (Run 'sudo python3 ${INSTALL_DIR}/setup_wizard.py' at any time)"
     echo ""
     sleep 2
-    python3 "${INSTALL_DIR}/setup_wizard.py"
+    # exec replaces the install script process so whiptail inherits the real TTY
+    exec python3 "${INSTALL_DIR}/setup_wizard.py"
 fi
