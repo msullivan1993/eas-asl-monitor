@@ -112,7 +112,7 @@ rm -rf "${BUILD_DIR}"
 
 if command -v multimon-ng &>/dev/null; then
     echo ""
-    echo "  ✓ multimon-ng installed: $(multimon-ng --version 2>&1 | head -1)"
+    echo "  ✓ multimon-ng installed: $(multimon-ng -h 2>&1 | head -1)"
 else
     echo "  [ERROR] Installation failed — binary not found after make install"
     exit 1
