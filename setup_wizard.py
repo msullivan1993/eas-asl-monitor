@@ -15,6 +15,7 @@ system configuration changes.
 import argparse
 import configparser
 import csv
+import re
 import json
 import os
 import re
@@ -1925,16 +1926,19 @@ class EASWizard:
             )
             if same_for_all:
                 apply_all_node = WTail.inputbox(
-                    "Enter the destination node number to use\n"
-                    "for ALL {} counties.\n\n"
-                    "Your weather radio node will connect TO\n"
-                    "this node when any alert fires.".format(len(fips_map)),
+                    "Enter the destination node(s) to use for\n"
+                    "ALL {} counties.\n\n"
+                    "For multiple nodes use commas:\n"
+                    "  496081,496082\n\n"
+                    "Your weather radio node connects TO\n"
+                    "these nodes when any alert fires.".format(len(fips_map)),
                     default=list(node_mapping.values())[0] if node_mapping else '',
                     title="Node for All Counties",
                     height=12
                 )
-                if apply_all_node and apply_all_node.strip().isdigit():
-                    apply_all_node = apply_all_node.strip()
+                cleaned = re.sub(r'\s', '', apply_all_node or '')
+                if cleaned and all(p.isdigit() for p in cleaned.split(',') if p):
+                    apply_all_node = cleaned
                     for fips in fips_map:
                         node_mapping[fips] = apply_all_node
                 else:
@@ -1945,9 +1949,11 @@ class EASWizard:
                 existing = node_mapping.get(fips, '')
                 node = WTail.inputbox(
                     "{} [{}]\n\n"
-                    "Enter the DESTINATION node number.\n"
+                    "Enter the DESTINATION node number(s).\n"
+                    "For multiple nodes use commas:\n"
+                    "  496081,496082\n\n"
                     "Your weather radio node connects TO\n"
-                    "this node when an alert fires here.\n\n"
+                    "these nodes when an alert fires here.\n\n"
                     "Enter 0 to skip.".format(name, fips),
                     default=existing,
                     title="Destination Node",
@@ -1955,8 +1961,9 @@ class EASWizard:
                 )
                 if node is None:
                     return False
-                if node.strip() and node.strip() != '0':
-                    node_mapping[fips] = node.strip()
+                cleaned = re.sub(r'\s', '', node or '')
+                if cleaned and cleaned != '0':
+                    node_mapping[fips] = cleaned
 
         self.cfg['fips_map'] = node_mapping
         return True

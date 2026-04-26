@@ -159,11 +159,13 @@ class AlertHandler(object):
     def _resolve_nodes(self, fips_codes):
         nodes = set()
         for fips in fips_codes:
-            if fips in self.fips_map:
-                nodes.add(self.fips_map[fips])
-            state_wild = fips[:3] + '000'
-            if state_wild in self.fips_map:
-                nodes.add(self.fips_map[state_wild])
+            for key in (fips, fips[:3] + '000'):
+                if key in self.fips_map:
+                    # Value may be comma-separated: "496081,496082"
+                    for node in self.fips_map[key].split(','):
+                        node = node.strip()
+                        if node:
+                            nodes.add(node)
         return nodes
 
     def handle_header(self, line):
