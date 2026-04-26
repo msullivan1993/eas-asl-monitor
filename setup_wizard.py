@@ -225,7 +225,7 @@ class WTail:
         for i, (desc, fn) in enumerate(steps):
             pct = int(i / total * 100)
             try:
-                proc.stdin.write(f"XXX\n{pct}\n{desc}\nXXX\n")
+                proc.stdin.write("XXX\n{}\n{}\nXXX\n".format(pct, desc))
                 proc.stdin.flush()
             except Exception:
                 pass
@@ -265,7 +265,7 @@ def detect_alsa_capture_devices() -> list:
         for line in out.stdout.splitlines():
             m = re.match(r'card (\d+): .+\[(.+?)\].*device (\d+):', line)
             if m:
-                hw   = f"hw:{m.group(1)},{m.group(3)}"
+                hw   = "hw:{},{}".format(m.group(1), m.group(3))
                 name = m.group(2).strip()
                 devices.append((hw, name))
         return devices
@@ -297,7 +297,7 @@ def test_ami(host, port, user, secret) -> bool:
         s.connect((host, port))
         s.recv(1024)
         s.sendall(
-            f"Action: Login\r\nUsername: {user}\r\nSecret: {secret}\r\n\r\n"
+            "Action: Login\r\nUsername: {}\r\nSecret: {}\r\n\r\n".format(user, secret)
             .encode()
         )
         resp = s.recv(1024).decode(errors='replace')
@@ -311,7 +311,7 @@ def check_dsnoop(device_hw) -> bool:
     """Test if dsnoop can open the given ALSA device."""
     try:
         proc = subprocess.run(
-            ['arecord', '-D', f'dsnoop:{device_hw.replace("hw:","")}',
+            ['arecord', '-D', 'dsnoop:{}'.format(device_hw.replace("hw:","")),
              '-r', '22050', '-f', 'S16_LE', '-c', '1',
              '-d', '1', '-t', 'raw', '/dev/null'],
             capture_output=True, timeout=5
@@ -430,7 +430,7 @@ def get_alsa_udev_attrs(hw_string) -> dict:
     try:
         out = subprocess.run(
             ['udevadm', 'info', '-a',
-             f'/sys/class/sound/card{card_num}'],
+             '/sys/class/sound/card{}'.format(card_num)],
             capture_output=True, text=True, timeout=5
         )
         text = out.stdout
@@ -474,32 +474,28 @@ def build_udev_rule(symlink_name, vendor, product,
     if subsystem == 'sound':
         # Sound device symlink — matches the ALSA card
         attrs = (
-            f'ATTRS{{idVendor}}=="{vendor}", '
-            f'ATTRS{{idProduct}}=="{product}"'
+            'ATTRS{{idVendor}}=="{}", ATTRS{{idProduct}}=="{}"'.format(vendor, product)
         )
         if serial and serial not in GENERIC_USB_SERIALS:
-            attrs += f', ATTRS{{serial}}=="{serial}"'
-            match_desc = f"vendor={vendor} product={product} serial={serial}"
+            attrs += ', ATTRS{{serial}}=="{}"'.format(serial)
+            match_desc = "vendor={} product={} serial={}".format(vendor, product, serial)
         else:
-            match_desc = f"vendor={vendor} product={product} (no unique serial)"
+            match_desc = "vendor={} product={} (no unique serial)".format(vendor, product)
         rule = (
-            f'SUBSYSTEM=="sound", SUBSYSTEMS=="usb", {attrs}, '
-            f'SYMLINK+="snd/{symlink_name}"'
+            'SUBSYSTEM=="sound", SUBSYSTEMS=="usb", {}, SYMLINK+="snd/{}"'.format(attrs, symlink_name)
         )
     else:
         # USB device for RTL-SDR — no sound subsystem
         attrs = (
-            f'ATTRS{{idVendor}}=="{vendor}", '
-            f'ATTRS{{idProduct}}=="{product}"'
+            'ATTRS{{idVendor}}=="{}", ATTRS{{idProduct}}=="{}"'.format(vendor, product)
         )
         if serial and serial not in GENERIC_USB_SERIALS:
-            attrs += f', ATTRS{{serial}}=="{serial}"'
-            match_desc = f"vendor={vendor} product={product} serial={serial}"
+            attrs += ', ATTRS{{serial}}=="{}"'.format(serial)
+            match_desc = "vendor={} product={} serial={}".format(vendor, product, serial)
         else:
-            match_desc = f"vendor={vendor} product={product} (no unique serial)"
+            match_desc = "vendor={} product={} (no unique serial)".format(vendor, product)
         rule = (
-            f'SUBSYSTEM=="usb", {attrs}, '
-            f'SYMLINK+="rtl_sdr_{symlink_name}"'
+            'SUBSYSTEM=="usb", {}, SYMLINK+="rtl_sdr_{}"'.format(attrs, symlink_name)
         )
     return rule, match_desc
 
@@ -527,7 +523,7 @@ def write_udev_rules(rules) -> bool:
 
 def generate_wx_serial(index: int = 1) -> str:
     """Generate a human-readable serial for a WX monitor dongle."""
-    return f"WXMON{index:02d}"
+    return "WXMON{:02d}".format(index)
 
 
 # ── FIPS lookup ─────────────────────────────────────────────────────────────
@@ -677,7 +673,7 @@ def write_config(cfg) -> None:
     if cfg.get('usrp_nodes'):
         c['usrp_nodes'] = {}
         for key, (tx, rx) in cfg['usrp_nodes'].items():
-            c['usrp_nodes'][str(key)] = f"{tx}:{rx}"
+            c['usrp_nodes'][str(key)] = "{}:{}".format(tx, rx)
 
     # [alert_behavior]
     c['alert_behavior'] = {}
@@ -712,14 +708,14 @@ def write_config(cfg) -> None:
 def setup_dsnoop(device_hw) -> bool:
     """Write ALSA dsnoop stanza to /etc/asound.conf."""
     card_dev = device_hw.replace('hw:', '')
-    stanza = f"""
+    stanza = """
 # EAS Monitor dsnoop tap — added by setup_wizard.py
 pcm.eas_tap {{
     type dsnoop
     ipc_key 2468
-    slave.pcm "{device_hw}"
+    slave.pcm "{}"
 }}
-"""
+""".format(device_hw)
     try:
         existing = ''
         if Path(ASOUND_CONF).exists():
@@ -783,9 +779,9 @@ def add_usrp_node_to_asterisk(node_num, tx_port,
     rpt_conf = Path('/etc/asterisk/rpt.conf')
     ext_conf = Path('/etc/asterisk/extensions.conf')
 
-    rpt_stanza = f"""
-[{node_num}]
-rxchannel = USRP/127.0.0.1:{tx_port}:{rx_port}
+    rpt_stanza = """
+[{}]
+rxchannel = USRP/127.0.0.1:{}:{}
 duplex = 0
 hangtime = 0
 althangtime = 0
@@ -796,15 +792,15 @@ nounkeyct = 1
 idrecording = |i
 idtime = 99999999
 ; EAS Monitor private receive node — do not modify
-"""
-    ext_entry = f"exten => {node_num},1,rpt,{node_num}\n"
-    nodes_entry = f"{node_num} = radio@127.0.0.1/{node_num},NONE\n"
+""".format(node_num, tx_port, rx_port)
+    ext_entry = "exten => {},1,rpt,{}\n".format(node_num, node_num)
+    nodes_entry = "{} = radio@127.0.0.1/{},NONE\n".format(node_num, node_num)
 
     try:
         # rpt.conf
         if rpt_conf.exists():
             content = rpt_conf.read_text()
-            if f'[{node_num}]' not in content:
+            if '[{}]'.format(node_num) not in content:
                 with open(rpt_conf, 'a') as f:
                     f.write(rpt_stanza)
 
@@ -815,18 +811,17 @@ idtime = 99999999
                 # Add to radio-secure context if it exists
                 if '[radio-secure]' in content:
                     content = content.replace(
-                        '[radio-secure]',
-                        f'[radio-secure]\n{ext_entry}'
+                        '[radio-secure][radio-secure]\n{}'.format(ext_entry)
                     )
                     ext_conf.write_text(content)
 
         # [nodes] in rpt.conf
         if rpt_conf.exists():
             content = rpt_conf.read_text()
-            if f'{node_num} = radio@' not in content:
+            if '{} = radio@'.format(node_num) not in content:
                 content = re.sub(
                     r'(\[nodes\])',
-                    f'\\1\n{nodes_entry}',
+                    '\\1\n{}'.format(nodes_entry),
                     content
                 )
                 rpt_conf.write_text(content)
@@ -844,10 +839,9 @@ def add_dtmf_playback_commands(public_node, max_recs) -> bool:
 
     commands = '\n; EAS Monitor — alert playback (*91 = most recent)\n'
     for i in range(1, max_recs + 1):
-        path = f"{RECORDING_DIR}/recent_{i}"
+        path = "{}/recent_{}".format(RECORDING_DIR, i)
         commands += (
-            f"9{i} = cop,14,{path} "
-            f"; Play recording #{i} (most recent = 1)\n"
+            "9{} = cop,14,{} ; Play recording #{} (most recent = 1)\n".format(i, path, i)
         )
 
     try:
@@ -857,9 +851,9 @@ def add_dtmf_playback_commands(public_node, max_recs) -> bool:
         # Add to [functions] stanza
         if '[functions]' in content:
             content = content.replace('[functions]',
-                                      f'[functions]\n{commands}')
+                                      '[functions]\n{}'.format(commands))
         else:
-            content += f'\n[functions]\n{commands}'
+            content += '\n[functions]\n{}'.format(commands)
         rpt_conf.write_text(content)
         return True
     except Exception:
@@ -1078,19 +1072,13 @@ class EASWizard:
         WTail.infobox("Testing ALSA dsnoop tap...")
         if check_dsnoop(choice):
             WTail.msgbox(
-                f"dsnoop tap works on {choice}.\n\n"
-                "Audio will be shared between Asterisk and the EAS monitor.\n"
-                "No changes to your Asterisk configuration are needed.",
+                "dsnoop tap works on {}.\n\nAudio will be shared between Asterisk and the EAS monitor.\nNo changes to your Asterisk configuration are needed.".format(choice),
                 title="dsnoop Test Passed"
             )
             self.cfg['dsnoop_ok'] = True
         else:
             WTail.msgbox(
-                f"dsnoop could not open {choice}.\n\n"
-                "This is usually because the device driver doesn't support\n"
-                "shared capture. The installer will set up an ALSA loopback\n"
-                "as an alternative. Your Asterisk config will need a small\n"
-                "update — the installer will guide you.",
+                "dsnoop could not open {}.\n\nThis is usually because the device driver doesn't support\nshared capture. The installer will set up an ALSA loopback\nas an alternative. Your Asterisk config will need a small\nupdate — the installer will guide you.".format(choice),
                 title="dsnoop Not Available"
             )
             self.cfg['dsnoop_ok'] = False
@@ -1140,7 +1128,7 @@ class EASWizard:
 
         # Frequency selection
         freq_items = [
-            (hz, f"{label} — {'KIH39, KEC79...' if '550' in label else label}",
+            (hz, "{} — {}".format(label, 'KIH39, KEC79...' if '550' in label else label),
              label == '162.550 MHz')
             for label, hz in NOAA_FREQUENCIES.items()
         ]
@@ -1237,8 +1225,7 @@ class EASWizard:
             u = quote(user.strip(), safe='')
             p = quote(pw, safe='')
             test_url = (
-                f"https://{u}:{p}@audio.broadcastify.com/"
-                f"{feed_id.strip()}.mp3"
+                "https://{}:{}@audio.broadcastify.com/{}.mp3".format(u, p, feed_id.strip())
             )
             ok = self._test_stream(test_url)
             if not ok:
@@ -1320,16 +1307,12 @@ class EASWizard:
         src  = self.cfg.get('audio_source', '')
         label = 'weather radio dongle' if src == 'usb_direct' else 'RIM-Lite / node interface'
 
-        WTail.infobox(f"Probing USB attributes for {hw}...")
+        WTail.infobox("Probing USB attributes for {}...".format(hw))
         attrs = get_alsa_udev_attrs(hw)
 
         if not attrs.get('vendor'):
             WTail.msgbox(
-                f"Could not read USB attributes for {hw}.\n\n"
-                "The device will be addressed by its current ALSA card number\n"
-                "which may change if USB devices are reordered at boot.\n\n"
-                "If this causes problems, unplug and replug the device,\n"
-                "then re-run the wizard.",
+                "Could not read USB attributes for {}.\n\nThe device will be addressed by its current ALSA card number\nwhich may change if USB devices are reordered at boot.\n\nIf this causes problems, unplug and replug the device,\nthen re-run the wizard.".format(hw),
                 title="Device Probe Failed"
             )
             return True
@@ -1341,10 +1324,10 @@ class EASWizard:
         has_unique_serial = (serial and serial not in GENERIC_USB_SERIALS)
 
         if has_unique_serial:
-            match_desc = f"vendor:product:serial ({vendor}:{product}:{serial})"
+            match_desc = "vendor:product:serial ({}:{}:{})".format(vendor, product, serial)
             quality    = "Excellent — unique per physical device, port-independent"
         else:
-            match_desc = f"vendor:product only ({vendor}:{product})"
+            match_desc = "vendor:product only ({}:{})".format(vendor, product)
             quality    = (
                 "Good — works if only one device of this model is present.\n"
                 "  ⚠  If you add another identical USB audio chip, both\n"
@@ -1352,12 +1335,7 @@ class EASWizard:
             )
 
         if not WTail.yesno(
-            f"Create a stable udev rule for your {label}?\n\n"
-            f"  Device:  {hw}\n"
-            f"  Matches: {match_desc}\n"
-            f"  Quality: {quality}\n\n"
-            "This makes the device path permanent regardless of USB port.\n"
-            "The config will use 'hw:CARD=wx_radio' instead of 'hw:X,Y'.",
+            "Create a stable udev rule for your {}?\n\n  Device:  {}\n  Matches: {}\n  Quality: {}\n\nThis makes the device path permanent regardless of USB port.\nThe config will use 'hw:CARD=wx_radio' instead of 'hw:X,Y'.".format(label, hw, match_desc, quality),
             title="Stable Device Identification",
             yes_btn="Create Rule",
             no_btn="Skip"
@@ -1378,12 +1356,7 @@ class EASWizard:
         self.cfg['udev_written'] = True
 
         WTail.msgbox(
-            f"udev rule staged:\n\n"
-            f"  {rule[:70]}{'...' if len(rule) > 70 else ''}\n\n"
-            f"Rule will be written to:\n"
-            f"  {UDEV_RULES_FILE}\n\n"
-            "The config will reference 'hw:CARD=wx_radio'.\n"
-            "Changes take effect after the wizard applies configuration.",
+            "udev rule staged:\n\n  {}{}\n\nRule will be written to:\n  {}\n\nThe config will reference 'hw:CARD=wx_radio'.\nChanges take effect after the wizard applies configuration.".format(rule[:70], '...' if len(rule) > 70 else '', UDEV_RULES_FILE),
             title="udev Rule Ready",
             height=14
         )
@@ -1393,7 +1366,7 @@ class EASWizard:
         """Handle RTL-SDR serial identification, with optional EEPROM write."""
         dev_index = self.cfg.get('rtl_device', 0)
 
-        WTail.infobox(f"Reading RTL-SDR EEPROM (device {dev_index})...")
+        WTail.infobox("Reading RTL-SDR EEPROM (device {})...".format(dev_index))
         info = read_rtlsdr_eeprom(dev_index)
 
         if not info.get('vendor_id') and not info.get('serial') and not info.get('product'):
@@ -1414,10 +1387,7 @@ class EASWizard:
         if not is_generic:
             # Serial is already unique — just confirm and use it
             WTail.msgbox(
-                f"Your RTL-SDR dongle has a unique serial number:\n\n"
-                f"  Serial: {current_serial}\n\n"
-                "This will be used to identify the device instead of its\n"
-                "USB port number. You can now plug it into any USB port.",
+                "Your RTL-SDR dongle has a unique serial number:\n\n  Serial: {}\n\nThis will be used to identify the device instead of its\nUSB port number. You can now plug it into any USB port.".format(current_serial),
                 title="Unique Serial Found"
             )
             self.cfg['rtl_serial']  = current_serial
@@ -1426,13 +1396,9 @@ class EASWizard:
 
         # Generic or absent serial — offer to write a new one
         choice = WTail.menu(
-            f"Your RTL-SDR has a generic serial number: '{current_serial}'\n\n"
-            "This is the factory default shared by most dongles.\n"
-            "Without a unique serial, the dongle is addressed by USB port\n"
-            "number — moving it to a different port will break the config.\n\n"
-            "What would you like to do?",
+            "Your RTL-SDR has a generic serial number: '{}'\n\nThis is the factory default shared by most dongles.\nWithout a unique serial, the dongle is addressed by USB port\nnumber — moving it to a different port will break the config.\n\nWhat would you like to do?".format(current_serial),
             [
-                ('write',    f'Write a unique serial ({suggested}) to the dongle\'s EEPROM'),
+                ('write',    'Write a unique serial ({}) to the dongle\'s EEPROM'.format(suggested)),
                 ('custom',   'Write a custom serial string I specify'),
                 ('skip',     'Skip — use device index (port-dependent)'),
             ],
@@ -1441,9 +1407,7 @@ class EASWizard:
 
         if choice is None or choice == 'skip':
             WTail.msgbox(
-                f"Device will be addressed as index {dev_index}.\n\n"
-                "Note: If this dongle is moved to a different USB port,\n"
-                "update device_index in /etc/eas_monitor/fips_nodes.conf.",
+                "Device will be addressed as index {}.\n\nNote: If this dongle is moved to a different USB port,\nupdate device_index in /etc/eas_monitor/fips_nodes.conf.".format(dev_index),
                 title="Using Device Index"
             )
             return True
@@ -1471,12 +1435,7 @@ class EASWizard:
 
         # Confirm before writing
         if not WTail.yesno(
-            f"Write serial '{new_serial}' to dongle EEPROM?\n\n"
-            f"  Dongle index : {dev_index}\n"
-            f"  New serial   : {new_serial}\n"
-            f"  Old serial   : {current_serial or '(empty)'}\n\n"
-            "⚠  After writing, you must UNPLUG and REPLUG the dongle.\n"
-            "   The wizard will wait for you to do this.",
+            "Write serial '{}' to dongle EEPROM?\n\n  Dongle index : {}\n  New serial   : {}\n  Old serial   : {}\n\n⚠  After writing, you must UNPLUG and REPLUG the dongle.\n   The wizard will wait for you to do this.".format(new_serial, dev_index, new_serial, current_serial or '(empty)'),
             title="Confirm EEPROM Write",
             yes_btn="Write Serial",
             no_btn="Cancel"
@@ -1484,7 +1443,7 @@ class EASWizard:
             return True
 
         WTail.infobox(
-            f"Writing serial '{new_serial}' to RTL-SDR EEPROM..."
+            "Writing serial '{}' to RTL-SDR EEPROM...".format(new_serial)
         )
         ok = write_rtlsdr_serial(dev_index, new_serial)
 
@@ -1502,33 +1461,27 @@ class EASWizard:
 
         # Prompt to replug
         WTail.msgbox(
-            f"Serial '{new_serial}' written successfully.\n\n"
-            "UNPLUG the dongle now, wait 2 seconds, then plug it back in.\n\n"
-            "Press OK after replugging.",
+            "Serial '{}' written successfully.\n\nUNPLUG the dongle now, wait 2 seconds, then plug it back in.\n\nPress OK after replugging.".format(new_serial),
             title="Replug Dongle Required",
             height=12
         )
 
         # Wait for the new serial to appear
         WTail.infobox(
-            f"Waiting for dongle with serial '{new_serial}' to appear..."
+            "Waiting for dongle with serial '{}' to appear...".format(new_serial)
         )
         found = wait_for_rtlsdr_serial(new_serial, timeout=30)
 
         if found:
             WTail.msgbox(
-                f"Dongle detected with serial '{new_serial}'.\n\n"
-                "The config will use this serial as the device identifier.\n"
-                "The dongle can now be used in any USB port.",
+                "Dongle detected with serial '{}'.\n\nThe config will use this serial as the device identifier.\nThe dongle can now be used in any USB port.".format(new_serial),
                 title="Serial Confirmed"
             )
             self.cfg['rtl_serial'] = new_serial
             self.cfg['rtl_device'] = new_serial   # use serial as -d arg
         else:
             WTail.msgbox(
-                f"Dongle with serial '{new_serial}' not detected within 30s.\n\n"
-                "The serial was written — try replugging manually.\n"
-                "Device will be addressed by index until the next wizard run.",
+                "Dongle with serial '{}' not detected within 30s.\n\nThe serial was written — try replugging manually.\nDevice will be addressed by index until the next wizard run.".format(new_serial),
                 title="Detection Timeout"
             )
             # Still store it — it'll work next time
@@ -1549,11 +1502,7 @@ class EASWizard:
         num_nodes   = len(frequencies) if src == 'rtlsdr' else 1
 
         WTail.msgbox(
-            f"You need {num_nodes} private local node number(s) for audio routing.\n\n"
-            "Private nodes are local-only (not registered with AllStarLink).\n"
-            "Use numbers NOT in the public node directory — numbers like\n"
-            "29901, 29902, etc. work well for private use.\n\n"
-            "These nodes will be added to your rpt.conf automatically.",
+            "You need {} private local node number(s) for audio routing.\n\nPrivate nodes are local-only (not registered with AllStarLink).\nUse numbers NOT in the public node directory — numbers like\n29901, 29902, etc. work well for private use.\n\nThese nodes will be added to your rpt.conf automatically.".format(num_nodes),
             title="Private USRP Nodes",
             height=14
         )
@@ -1565,15 +1514,15 @@ class EASWizard:
         if src == 'rtlsdr' and num_nodes > 1:
             for i, freq in enumerate(frequencies):
                 node = WTail.inputbox(
-                    f"Private node number for {int(freq)/1e6:.3f} MHz:",
+                    "Private node number for {:.3f} MHz:".format(int(freq)/1e6),
                     default=str(29901 + i),
-                    title=f"USRP Node {i+1}/{num_nodes}"
+                    title="USRP Node {}/{}".format(i+1, num_nodes)
                 )
                 if node is None:
                     return False
                 usrp_nodes[freq] = (tx_port + i*2, rx_port + i*2)
                 # Store node number too
-                usrp_nodes[f'{freq}_nodenum'] = node.strip()
+                usrp_nodes['{}_nodenum'.format(freq)] = node.strip()
         else:
             node = WTail.inputbox(
                 "Private node number for EAS audio source:",
@@ -1625,7 +1574,7 @@ class EASWizard:
             WTail.msgbox("Please enter at least one ZIP code.", title="Error")
             return self._fips_from_zip()
 
-        WTail.infobox(f"Looking up counties for {len(zips)} ZIP code(s)...")
+        WTail.infobox("Looking up counties for {} ZIP code(s)...".format(len(zips)))
 
         all_counties = {}
         for z in zips:
@@ -1634,7 +1583,7 @@ class EASWizard:
                 fips = r['fips']
                 if fips not in all_counties:
                     state = STATE_FIPS.get(fips[:2], fips[:2])
-                    all_counties[fips] = f"{r['county']}, {state}"
+                    all_counties[fips] = "{}, {}".format(r['county'], state)
 
         if not all_counties:
             WTail.msgbox(
@@ -1720,10 +1669,7 @@ class EASWizard:
         node_mapping = self.cfg.get('fips_map', {})
 
         WTail.msgbox(
-            f"You have {len(fips_map)} county/counties selected.\n\n"
-            "For each county, enter the AllStarLink node number to connect\n"
-            "when an alert is received for that county.\n\n"
-            "Multiple counties can map to the same node number.",
+            "You have {} county/counties selected.\n\nFor each county, enter the AllStarLink node number to connect\nwhen an alert is received for that county.\n\nMultiple counties can map to the same node number.".format(len(fips_map)),
             title="Node Mapping",
             height=12
         )
@@ -1731,9 +1677,7 @@ class EASWizard:
         for fips, name in sorted(fips_map.items()):
             existing = node_mapping.get(fips, '')
             node = WTail.inputbox(
-                f"ASL node to connect for:\n\n"
-                f"  {name}\n  FIPS: {fips}\n\n"
-                f"Enter 0 to skip this county.",
+                "ASL node to connect for:\n\n  {}\n  FIPS: {}\n\nEnter 0 to skip this county.".format(name, fips),
                 default=existing,
                 title="Node Mapping"
             )
@@ -1827,13 +1771,13 @@ class EASWizard:
                     TEST_EVENTS.get(event, event)
                 )
                 m = WTail.radiolist(
-                    f"Behavior for {event} ({label}):",
+                    "Behavior for {} ({}):".format(event, label),
                     [
                         ('propagate', 'Propagate to connected network', True),
                         ('local',     'Local node only', False),
                         ('skip',      'Skip — do not connect nodes', False),
                     ],
-                    title=f"Behavior: {event}"
+                    title="Behavior: {}".format(event)
                 )
                 behavior[event] = m or 'propagate'
         else:
@@ -1889,12 +1833,12 @@ class EASWizard:
         }
 
         fips_lines = '\n'.join(
-            f"  {fips} → node {node}"
+            "  {} → node {}".format(fips, node)
             for fips, node in sorted(self.cfg.get('fips_map', {}).items())
         ) or "  (none configured)"
 
         behavior_lines = '\n'.join(
-            f"  {event}: {mode}"
+            "  {}: {}".format(event, mode)
             for event, mode in sorted(
                 self.cfg.get('alert_behavior', {}).items()
             )
@@ -1904,31 +1848,31 @@ class EASWizard:
         if self.cfg.get('udev_rules'):
             udev_lines = '\nudev rules to write:\n'
             for r in self.cfg['udev_rules']:
-                udev_lines += f"  {r[:72]}{'...' if len(r)>72 else ''}\n"
+                udev_lines += "  {}{}\n".format(r[:72], '...' if len(r)>72 else '')
 
-        summary = f"""EAS Monitor Configuration Summary
-{'='*40}
+        summary = """EAS Monitor Configuration Summary
+{}
 
-Node:          {self.cfg.get('local_node', '?')}
-Audio source:  {src_labels.get(self.cfg.get('audio_source', ''), '?')}
-AMI user:      {self.cfg.get('ami_user', '?')}
+Node:          {}
+Audio source:  {}
+AMI user:      {}
 
 FIPS → Node mappings:
-{fips_lines}
+{}
 
 Alert behavior:
-{behavior_lines}
+{}
 
-Recording: {'Enabled (' + str(self.cfg.get('max_recordings', 5)) + ' max)' if self.cfg.get('recording_enabled', True) else 'Disabled'}
-{udev_lines}
+Recording: {}
+{}
 Files to be modified:
-  • {CONFIG_FILE}
-  • {ASOUND_CONF} (if USB shared)
+  • {}
+  • {} (if USB shared)
   • /etc/asterisk/modules.conf (if not USB shared)
   • /etc/asterisk/rpt.conf (if not USB shared)
   • /etc/asterisk/extensions.conf (if not USB shared)
-  • {SERVICE_FILE}
-"""
+  • {}
+""".format('='*40, self.cfg.get('local_node', '?'), src_labels.get(self.cfg.get('audio_source', ''), '?'), self.cfg.get('ami_user', '?'), fips_lines, behavior_lines, 'Enabled (' + str(self.cfg.get('max_recordings', 5)) + ' max)' if self.cfg.get('recording_enabled', True) else 'Disabled', udev_lines, CONFIG_FILE, ASOUND_CONF, SERVICE_FILE)
         WTail.textbox(summary, title="Configuration Review")
 
         return WTail.yesno(
@@ -1957,7 +1901,7 @@ Files to be modified:
         # Write udev rules if any were staged during device identification
         if self.cfg.get('udev_rules'):
             steps.append((
-                f"Writing udev rules to {UDEV_RULES_FILE}...",
+                "Writing udev rules to {}...".format(UDEV_RULES_FILE),
                 lambda: write_udev_rules(self.cfg['udev_rules'])
             ))
 
@@ -1985,12 +1929,12 @@ Files to be modified:
             for key, ports in usrp_nodes.items():
                 if key.endswith('_nodenum'):
                     continue
-                nodenum_key = f'{key}_nodenum'
+                nodenum_key = '{}_nodenum'.format(key)
                 nodenum = usrp_nodes.get(nodenum_key, '29901')
                 if isinstance(ports, tuple):
                     tx, rx = ports
                     steps.append((
-                        f"Adding USRP node {nodenum} to rpt.conf...",
+                        "Adding USRP node {} to rpt.conf...".format(nodenum),
                         lambda nn=nodenum, t=tx, r=rx:
                             add_usrp_node_to_asterisk(nn, t, r)
                     ))
@@ -2048,8 +1992,7 @@ Files to be modified:
         WTail.infobox("Running decode test...")
         try:
             proc = subprocess.run(
-                f"sox {test_sample} -t raw -r 22050 -e signed -b 16 -c 1 - | "
-                f"multimon-ng -t raw -a EAS -",
+                "sox {} -t raw -r 22050 -e signed -b 16 -c 1 - | multimon-ng -t raw -a EAS -".format(test_sample),
                 shell=True, capture_output=True, text=True, timeout=15
             )
             output = proc.stdout + proc.stderr
@@ -2074,24 +2017,14 @@ Files to be modified:
                 )
         except Exception as e:
             WTail.msgbox(
-                f"Test error: {e}\n\nCheck that sox and multimon-ng are installed.",
+                "Test error: {}\n\nCheck that sox and multimon-ng are installed.".format(e),
                 title="Test Error"
             )
         return True
 
     def screen_done(self):
         WTail.msgbox(
-            "Setup complete!\n\n"
-            "Next steps:\n\n"
-            "  1. Start the service:\n"
-            "     systemctl start eas-monitor\n\n"
-            "  2. Watch the logs:\n"
-            "     journalctl -u eas-monitor -f\n\n"
-            "  3. Edit FIPS map or alert settings:\n"
-            f"     nano {CONFIG_FILE}\n\n"
-            "  4. Test alert playback (after first real alert):\n"
-            "     DTMF *91 on your node = most recent alert\n\n"
-            "Thank you for using EAS/SAME AllStarLink Monitor.",
+            "Setup complete!\n\nNext steps:\n\n  1. Start the service:\n     systemctl start eas-monitor\n\n  2. Watch the logs:\n     journalctl -u eas-monitor -f\n\n  3. Edit FIPS map or alert settings:\n     nano {}\n\n  4. Test alert playback (after first real alert):\n     DTMF *91 on your node = most recent alert\n\nThank you for using EAS/SAME AllStarLink Monitor.".format(CONFIG_FILE),
             title="Setup Complete",
             height=20
         )
