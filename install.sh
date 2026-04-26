@@ -11,6 +11,14 @@
 # =============================================================================
 set -e
 
+# ── TTY check ─────────────────────────────────────────────────────────────────
+# whiptail requires a real TTY. If stdout is not a terminal (e.g. piped),
+# relaunch this script explicitly connected to /dev/tty so whiptail can draw.
+if [ ! -t 1 ]; then
+    exec bash "$0" "$@" </dev/tty >/dev/tty 2>/dev/tty
+fi
+
+
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'

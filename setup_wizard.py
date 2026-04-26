@@ -106,15 +106,17 @@ class WTail:
         """
         full = ['whiptail', '--backtitle', WTail.BACKTITLE] + args
         try:
-            tty = open('/dev/tty', 'r+')
+            tty_in  = open('/dev/tty', 'r')
+            tty_out = open('/dev/tty', 'w')
             result = subprocess.run(
                 full,
-                stdin=tty,
-                stdout=tty,
+                stdin=tty_in,
+                stdout=tty_out,
                 stderr=subprocess.PIPE,
                 universal_newlines=True
             )
-            tty.close()
+            tty_in.close()
+            tty_out.close()
             return result.returncode, result.stderr.strip()
         except FileNotFoundError:
             print("ERROR: whiptail not found. Install libnewt (Arch) or whiptail (Debian).")
