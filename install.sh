@@ -230,9 +230,9 @@ TEST_URL="https://www.weather.gov/media/arx/sametest.wav"
 if [[ ! -f "$TEST_SAMPLE" ]] || [[ ! -s "$TEST_SAMPLE" ]]; then
     echo "  Downloading SAME test audio sample..."
     if command -v wget &>/dev/null; then
-        wget -q "$TEST_URL" -O "$TEST_SAMPLE" 2>/dev/null
+        wget -q "$TEST_URL" -O "$TEST_SAMPLE" 2>/dev/null || true
     elif command -v curl &>/dev/null; then
-        curl -sL "$TEST_URL" -o "$TEST_SAMPLE" 2>/dev/null
+        curl -sL "$TEST_URL" -o "$TEST_SAMPLE" 2>/dev/null || true
     fi
     # Verify the file has content — 0-byte files cause silent test failure
     if [[ -s "$TEST_SAMPLE" ]]; then
