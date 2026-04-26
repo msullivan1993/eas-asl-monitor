@@ -31,7 +31,7 @@ Records alerts to a rotating audio buffer for DTMF playback.
 ## Quick Install
 
 ```bash
-git clone https://github.com/youruser/eas-asl-monitor.git
+git clone https://github.com/msullivan1993/eas-asl-monitor.git
 cd eas-asl-monitor
 sudo ./install.sh
 ```
