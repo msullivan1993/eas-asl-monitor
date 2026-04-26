@@ -1,21 +1,16 @@
 [Unit]
 Description=EAS/SAME AllStarLink Monitor
 Documentation=https://github.com/msullivan1993/eas-asl-monitor
-After=network.target asterisk.service sound.target
+After=network.target sound.target
 
 [Service]
 Type=simple
-User=asterisk
-Group=asterisk
-SupplementaryGroups=audio
 
 WorkingDirectory=/etc/eas_monitor
 ExecStartPre=/bin/sleep 10
 ExecStart=/usr/bin/python3 /etc/eas_monitor/eas_monitor.py \
           --config /etc/eas_monitor/fips_nodes.conf
 
-# Send SIGTERM on stop, wait 15s for clean shutdown (PTT release,
-# disconnect all nodes, discard recording), then SIGKILL if needed.
 KillMode=mixed
 TimeoutStopSec=15
 KillSignal=SIGTERM
