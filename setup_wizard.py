@@ -1475,9 +1475,11 @@ class EASWizard:
         self.cfg['audio_source']      = 'usrp_node'
 
         # Generate and show the Asterisk config additions
-        # Derive scheduler name from radio node (HamVoIP pattern: schedule{node})
-        radio_node  = self.cfg.get("local_node", "")
-        scheduler   = "schedule" + radio_node if radio_node else "rpt-sched"
+        # HamVoIP scheduler name is schedule{public_node} -- based on the
+        # main registered node, shared across all nodes on this system
+        public_node = self.cfg.get("public_node",
+                          self.cfg.get("local_node", ""))
+        scheduler   = "schedule" + public_node if public_node else "rpt-sched"
         rpt_stanza = (
             "\n"
             "; === EAS Monitor private listener node (added by eas-monitor installer) ===\n"
@@ -1486,7 +1488,7 @@ class EASWizard:
             "duplex=0\n"
             "scheduler={sched}\n"
         ).format(node=private_node, rx=rx_port, tx=rx_port + 1,
-                 sched=scheduler)
+                 sched=scheduler, pub=public_node)
 
         ext_stanza = (
             "\n"
@@ -1500,7 +1502,7 @@ class EASWizard:
             "rpt.conf addition:\n"
             "  [{node}]\n"
             "  rxchannel=USRP/127.0.0.1:{rx}:{tx}\n"
-            "  duplex=0  scheduler=schedule{rnode}\n\n"
+            "  duplex=0  scheduler=schedule{pub}\n\n"
             "extensions.conf ([radio-secure]):\n"
             "  exten={node},1,Rpt,{node}|X\n\n"
             "After applying, Asterisk will be reloaded.\n"
